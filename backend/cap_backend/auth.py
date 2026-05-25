@@ -66,7 +66,7 @@ def _wants_json(accept_header: str | None) -> bool:
 
 
 def _login_url(target_path: str) -> str:
-    query = urlencode({"redirect": target_path})
+    query = urlencode({"login": target_path})
     return f"{OAUTH_PATH_PREFIX}?{query}"
 
 
