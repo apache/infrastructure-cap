@@ -35,7 +35,7 @@ _SWAGGER_UI_HTML = f"""<!DOCTYPE html>
     <script>
       window.onload = () => {{
         window.ui = SwaggerUIBundle({{
-          url: '/api',
+          url: './api',
           dom_id: '#swagger-ui',
           deepLinking: true,
           presets: [
