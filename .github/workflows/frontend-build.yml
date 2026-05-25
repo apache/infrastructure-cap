@@ -26,7 +26,7 @@ on:
       min_release_age_days:
         description: "Minimum age (days) any pinned npm package must have"
         type: string
-        default: "5"
+        default: "3"
 
 # Only one build/publish per branch may run at a time. We do NOT cancel
 # in progress: dist commits are idempotent, but cancelling between
