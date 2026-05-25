@@ -3,7 +3,7 @@ Description=ASF Contingent Approval Service
 
 [Service]
 Type=exec
-WorkingDirectory=/opt/cap
+WorkingDirectory=/opt/cap/backend
 ExecStart=/usr/local/bin/uv run cap-backend --config /opt/cap/config.yaml
 Restart=always
 User=www-data
