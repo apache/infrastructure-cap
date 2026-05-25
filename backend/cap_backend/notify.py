@@ -35,7 +35,7 @@ NotificationEvent = Literal[
     "response",
 ]
 
-DEBUG = True
+DEBUG_RECIPIENT = None  # Set to whatever you want all test emails to go to
 
 
 def recipient_for(question: Question | Any) -> str:
@@ -45,8 +45,8 @@ def recipient_for(question: Question | Any) -> str:
     goes to ``dev@{project}.apache.org``. The project component is taken
     verbatim from ``question.project_id``.
     """
-    if DEBUG:
-        return "humbedooh@apache.org"
+    if DEBUG_RECIPIENT:
+        return DEBUG_RECIPIENT
     project = question.project_id
     if getattr(question, "is_private", False):
         return f"private@{project}.apache.org"
