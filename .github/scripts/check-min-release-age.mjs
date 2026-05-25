@@ -26,7 +26,7 @@
 
 import { readFileSync } from "node:fs";
 
-const THRESHOLD_DAYS = Number(process.env.MIN_RELEASE_AGE_DAYS || "7");
+const THRESHOLD_DAYS = Number(process.env.MIN_RELEASE_AGE_DAYS || "3");
 const REGISTRY = (process.env.NPM_REGISTRY || "https://registry.npmjs.org").replace(/\/$/, "");
 const lockfilePath = process.argv[2];
 
