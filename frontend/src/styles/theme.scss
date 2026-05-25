@@ -1,0 +1,124 @@
+// Bootstrap variable overrides. Must be imported before Bootstrap proper.
+$primary: #3a5e8c;
+$border-radius: 0.375rem;
+$enable-rounded: true;
+$enable-shadows: false;
+$enable-gradients: false;
+
+$font-family-sans-serif:
+  system-ui,
+  -apple-system,
+  "Helvetica Neue",
+  Arial,
+  sans-serif;
+
+@import "bootstrap/scss/bootstrap";
+
+body {
+  background-color: #f6f7f9;
+  min-height: 100vh;
+}
+
+main {
+  padding: 1.5rem 0 3rem 0;
+}
+
+.container,
+.container-narrow {
+  max-width: 960px;
+}
+
+.card {
+  border: 1px solid rgba(0, 0, 0, 0.075);
+}
+
+.q-card {
+  border-left: 4px solid var(--bs-secondary);
+  transition: border-color 150ms ease;
+}
+.q-card.status-open {
+  border-left-color: $primary;
+}
+.q-card.status-resolved-approved {
+  border-left-color: var(--bs-success);
+}
+.q-card.status-resolved-vetoed {
+  border-left-color: var(--bs-danger);
+}
+.q-card.status-resolved-insufficient_votes {
+  border-left-color: var(--bs-warning);
+}
+.q-card.status-removed {
+  border-left-color: var(--bs-secondary);
+}
+
+.empty-state {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--bs-secondary);
+}
+.empty-state .empty-icon {
+  font-size: 3rem;
+  opacity: 0.4;
+  margin-bottom: 0.5rem;
+}
+
+.navbar-brand .feather {
+  width: 22px;
+  height: 22px;
+  margin-right: 0.5rem;
+  vertical-align: -4px;
+}
+
+.toast-host {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 22rem;
+}
+
+.spin-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 3rem 0;
+  color: var(--bs-secondary);
+}
+
+.approval-card {
+  cursor: pointer;
+  border: 1px solid var(--bs-border-color);
+  border-radius: $border-radius;
+  padding: 1rem;
+  height: 100%;
+  background: #fff;
+  transition: border-color 100ms ease, background 100ms ease;
+}
+.approval-card.selected {
+  border-color: $primary;
+  background: rgba(58, 94, 140, 0.05);
+}
+.approval-card .icon {
+  font-size: 1.4rem;
+  color: $primary;
+  margin-bottom: 0.25rem;
+}
+
+.timeline-row.superseded {
+  opacity: 0.55;
+}
+.timeline-row .voter {
+  font-weight: 600;
+}
+
+.code-inline {
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+}

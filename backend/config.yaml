@@ -1,0 +1,21 @@
+server:
+  host: "0.0.0.0"
+  port: 8085
+  permalink_base: ""
+
+database:
+  path: "./cap.sqlite3"
+
+oauth:
+  base_url: null
+
+pubsub:
+  enabled: true
+  base_url: "https://pubsub.apache.org:2070/cap"
+  basic_auth:
+    username: "username"
+    password: "password"
+  timeout_seconds: 5
+
+logging:
+  level: "INFO"

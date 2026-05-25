@@ -1,0 +1,124 @@
+name: Frontend build and publish
+
+# Rebuilds the Svelte frontend and pushes the generated dist/ back into
+# the repository. The job runs on every push to main that touches
+# frontend source files (and manually via the Actions UI). It uses only
+# GitHub-published, stable Actions (no third-party marketplace plugins)
+# and a registry-driven minimum-release-age guard against zero-day npm
+# supply-chain compromise.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/src/**"
+      - "frontend/public/**"
+      - "frontend/index.html"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/svelte.config.js"
+      - "frontend/tsconfig.json"
+      - "frontend/vite.config.ts"
+      - ".github/workflows/frontend-build.yml"
+      - ".github/scripts/check-min-release-age.mjs"
+  workflow_dispatch:
+    inputs:
+      min_release_age_days:
+        description: "Minimum age (days) any pinned npm package must have"
+        type: string
+        default: "7"
+
+# Only one build/publish per branch may run at a time. We do NOT cancel
+# in progress: dist commits are idempotent, but cancelling between
+# `npm run build` and `git push` would leave the worktree in a weird
+# state. Letting them queue is safer than racing.
+concurrency:
+  group: frontend-build-${{ github.ref }}
+  cancel-in-progress: false
+
+# Default to read-only; the publish job upgrades to `contents: write`.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build dist and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      # workflow_dispatch input overrides the default of 7 days.
+      MIN_RELEASE_AGE_DAYS: ${{ inputs.min_release_age_days || '7' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # We need a real branch tip (not a detached SHA) so we can
+          # push back; fetch-depth: 0 keeps the history available for
+          # the commit-back step.
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # ----- Min-release-age guard ---------------------------------------
+      # Refuses to install any pinned package that was published less than
+      # MIN_RELEASE_AGE_DAYS ago. This is the window in which a
+      # compromised npm publish (hijacked maintainer, leaked OTP, etc.)
+      # would deliver malware before community detection. Running this
+      # *before* `npm ci` means we never download nor execute a
+      # too-fresh tarball.
+      - name: Min-release-age guard
+        working-directory: ${{ github.workspace }}
+        run: node .github/scripts/check-min-release-age.mjs frontend/package-lock.json
+
+      # ----- Install + build ---------------------------------------------
+      # `--ignore-scripts` shuts off arbitrary postinstall hooks (the
+      # primary delivery vector of supply-chain malware in npm). The
+      # frontend has no genuine postinstall scripts, so this is
+      # loss-free. `npm ci` is preferred over `npm install` because it
+      # refuses to modify package-lock.json: the lockfile pinning we
+      # just audited above is what gets installed.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --fund=false
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Build dist/
+        run: npm run build
+
+      # ----- Publish back to the branch ----------------------------------
+      # Skipped automatically when the build produced no diff against the
+      # tracked dist/. The commit carries [skip ci] so re-triggering is
+      # avoided, but the path filter on this workflow already excludes
+      # frontend/dist/** to belt-and-braces the same guarantee.
+      - name: Commit and push dist/
+        working-directory: ${{ github.workspace }}
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          # dist/ is in frontend/.gitignore for local-dev sanity, so we
+          # force-add it. Once committed, normal `git add` updates it on
+          # subsequent runs without -f.
+          git add -f frontend/dist
+          if git diff --cached --quiet; then
+            echo "No dist changes; nothing to publish."
+            exit 0
+          fi
+          short_sha="${GITHUB_SHA:0:7}"
+          git commit -m "chore(frontend): rebuild dist for ${short_sha} [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

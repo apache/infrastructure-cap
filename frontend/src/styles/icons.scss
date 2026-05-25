@@ -1,0 +1,8 @@
+// Font Awesome Free (Solid + Regular). The brands subset is not needed.
+// The webfonts themselves are copied into public/webfonts/ so the
+// reverse proxy serves them at /webfonts/* alongside the bundle.
+$fa-font-path: "/webfonts" !default;
+
+@import "@fortawesome/fontawesome-free/scss/fontawesome";
+@import "@fortawesome/fontawesome-free/scss/solid";
+@import "@fortawesome/fontawesome-free/scss/regular";
