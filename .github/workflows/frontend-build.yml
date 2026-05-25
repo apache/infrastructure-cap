@@ -51,8 +51,8 @@ jobs:
       run:
         working-directory: frontend
     env:
-      # workflow_dispatch input overrides the default of 7 days.
-      MIN_RELEASE_AGE_DAYS: ${{ inputs.min_release_age_days || '7' }}
+      # workflow_dispatch input overrides the default of 3 days.
+      MIN_RELEASE_AGE_DAYS: ${{ inputs.min_release_age_days || '3' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
