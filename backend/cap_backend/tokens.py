@@ -113,7 +113,7 @@ def build_token_handler(store: TokenStore):
         return {
             "uid": info.uid,
             "roleaccount": False,
-            "committees": list(info.committees),
+            "pmcs": list(info.committees),
             "isRoot": info.is_root,
             "fullname": info.fullname,
             "metadata": {"scope": list(info.scopes)},
