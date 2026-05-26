@@ -56,13 +56,13 @@ def _audit_rows(app, *, question_id: int | None = None) -> list[dict]:
 
 async def test_create_question_happy_path(app, stub_session, captured_emails):
     client = app.test_client()
-    response = await client.post("/question", json=_create_body())
+    response = await client.post("/api/question", json=_create_body())
     assert response.status_code == 201
     body = await response.get_json()
     assert body["question_id"] == 1
     assert body["status"] == "open"
     assert body["requester"] == "alice"
-    assert response.headers["Location"] == "/question/1"
+    assert response.headers["Location"] == "/api/question/1"
 
     audit = _audit_rows(app, question_id=1)
     assert len(audit) == 1
@@ -79,7 +79,7 @@ async def test_create_question_happy_path(app, stub_session, captured_emails):
 
 async def test_create_private_question_uses_private_list(app, stub_session, captured_emails):
     client = app.test_client()
-    response = await client.post("/question", json=_create_body(is_private=True))
+    response = await client.post("/api/question", json=_create_body(is_private=True))
     assert response.status_code == 201
     assert captured_emails[0]["recipient"] == "private@seapony.apache.org"
 
@@ -87,7 +87,7 @@ async def test_create_private_question_uses_private_list(app, stub_session, capt
 async def test_create_question_forbidden_for_non_committee(app, as_user, captured_emails):
     as_user(AuthenticatedUser(uid="bob", committees=("other",)))
     client = app.test_client()
-    response = await client.post("/question", json=_create_body())
+    response = await client.post("/api/question", json=_create_body())
     assert response.status_code == 403
     body = await response.get_json()
     assert body["error"] == "not_committee_member"
@@ -100,7 +100,7 @@ async def test_create_question_root_can_file_for_any_project(app, as_user, captu
     as_user(AuthenticatedUser(uid="root", committees=(), is_root=True))
     client = app.test_client()
     response = await client.post(
-        "/question",
+        "/api/question",
         json=_create_body(project_id="anyproject"),
     )
     assert response.status_code == 201
@@ -108,7 +108,7 @@ async def test_create_question_root_can_file_for_any_project(app, as_user, captu
 
 async def test_create_question_rejects_extra_fields(app, stub_session):
     client = app.test_client()
-    response = await client.post("/question", json=_create_body(question_id=99))
+    response = await client.post("/api/question", json=_create_body(question_id=99))
     # quart-schema rejects unknown fields per the extra="forbid" pydantic model.
     assert response.status_code in (400, 422)
 
@@ -116,7 +116,7 @@ async def test_create_question_rejects_extra_fields(app, stub_session):
 async def test_create_question_unauthenticated(app, captured_emails):
     client = app.test_client()
     response = await client.post(
-        "/question",
+        "/api/question",
         json=_create_body(),
         headers={"Accept": "application/json"},
     )
@@ -134,7 +134,7 @@ async def test_get_question_returns_detail(app, stub_session, seed_questions, se
     seed_response(app, question_id=qid, voter="erin", value="-1", comment="nope")
 
     client = app.test_client()
-    response = await client.get(f"/question/{qid}")
+    response = await client.get(f"/api/question/{qid}")
     assert response.status_code == 200
     body = await response.get_json()
     assert body["question"]["question_id"] == qid
@@ -144,7 +144,7 @@ async def test_get_question_returns_detail(app, stub_session, seed_questions, se
 
 async def test_get_question_returns_404_for_unknown_id(app, stub_session):
     client = app.test_client()
-    response = await client.get("/question/99999")
+    response = await client.get("/api/question/99999")
     assert response.status_code == 404
 
 
@@ -152,7 +152,7 @@ async def test_get_private_question_hidden_as_404(app, as_user, seed_questions):
     as_user(AuthenticatedUser(uid="outsider", committees=("other",)))
     [qid] = seed_questions(app, count=1, project_id="seapony", is_private=1)
     client = app.test_client()
-    response = await client.get(f"/question/{qid}")
+    response = await client.get(f"/api/question/{qid}")
     assert response.status_code == 404, "Private question must masquerade as 404"
 
 
@@ -165,7 +165,7 @@ async def test_patch_question_by_requester(app, stub_session, seed_questions, ca
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
     response = await client.patch(
-        f"/question/{qid}",
+        f"/api/question/{qid}",
         json={"title": "Renamed", "description": "Updated body"},
     )
     assert response.status_code == 200
@@ -188,7 +188,7 @@ async def test_patch_question_forbidden_for_other_user(app, as_user, seed_questi
     as_user(AuthenticatedUser(uid="bob", committees=("seapony",)))
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
-    response = await client.patch(f"/question/{qid}", json={"title": "Hostile"})
+    response = await client.patch(f"/api/question/{qid}", json={"title": "Hostile"})
     assert response.status_code == 403
 
 
@@ -201,7 +201,7 @@ async def test_patch_question_409_if_resolved(app, stub_session, seed_questions)
         outcome="approved",
     )
     client = app.test_client()
-    response = await client.patch(f"/question/{qid}", json={"title": "X"})
+    response = await client.patch(f"/api/question/{qid}", json={"title": "X"})
     assert response.status_code == 409
 
 
@@ -209,7 +209,7 @@ async def test_patch_question_root_can_edit(app, as_user, seed_questions, captur
     as_user(AuthenticatedUser(uid="root", committees=(), is_root=True))
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
-    response = await client.patch(f"/question/{qid}", json={"title": "Root edit"})
+    response = await client.patch(f"/api/question/{qid}", json={"title": "Root edit"})
     assert response.status_code == 200
 
 
@@ -218,7 +218,7 @@ async def test_patch_question_no_op_skips_audit_and_email(
 ):
     [qid] = seed_questions(app, count=1, requester="alice", title="Same")
     client = app.test_client()
-    response = await client.patch(f"/question/{qid}", json={"title": "Same"})
+    response = await client.patch(f"/api/question/{qid}", json={"title": "Same"})
     assert response.status_code == 200
     assert _audit_rows(app, question_id=qid) == []
     assert captured_emails == []
@@ -232,7 +232,7 @@ async def test_patch_question_no_op_skips_audit_and_email(
 async def test_delete_question_marks_removed(app, stub_session, seed_questions, captured_emails):
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
-    response = await client.delete(f"/question/{qid}")
+    response = await client.delete(f"/api/question/{qid}")
     assert response.status_code == 204
     assert (await response.get_data()) == b""
 
@@ -255,7 +255,7 @@ async def test_delete_question_forbidden_for_other_user(app, as_user, seed_quest
     as_user(AuthenticatedUser(uid="bob", committees=("seapony",)))
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
-    response = await client.delete(f"/question/{qid}")
+    response = await client.delete(f"/api/question/{qid}")
     assert response.status_code == 403
 
 
@@ -268,7 +268,7 @@ async def test_delete_question_409_if_already_removed(app, stub_session, seed_qu
         outcome="withdrawn",
     )
     client = app.test_client()
-    response = await client.delete(f"/question/{qid}")
+    response = await client.delete(f"/api/question/{qid}")
     assert response.status_code == 409
 
 
@@ -277,7 +277,7 @@ async def test_delete_private_question_uses_private_list(
 ):
     [qid] = seed_questions(app, count=1, requester="alice", is_private=1)
     client = app.test_client()
-    response = await client.delete(f"/question/{qid}")
+    response = await client.delete(f"/api/question/{qid}")
     assert response.status_code == 204
     assert captured_emails[0]["recipient"] == "private@seapony.apache.org"
 
@@ -309,12 +309,12 @@ async def test_resolve_question_after_deadline_marks_outcome(
     seed_response(app, question_id=qid, voter="erin", value="+1", is_binding=True)
 
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     assert response.status_code == 200
     body = await response.get_json()
     assert body["status"] == "resolved"
     assert body["outcome"] == "approved"
-    assert body["permalink"].endswith(f"/resolution/{qid}")
+    assert body["permalink"].endswith(f"/api/resolution/{qid}")
 
     audit = _audit_rows(app, question_id=qid)
     assert audit[-1]["action"] == "question.resolve"
@@ -335,10 +335,10 @@ async def test_resolve_idempotent_for_already_resolved(app, stub_session, seed_q
         requester="alice",
         status="resolved",
         outcome="approved",
-        permalink="/resolution/1",
+        permalink="/api/resolution/1",
     )
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     assert response.status_code == 200
     body = await response.get_json()
     assert body["status"] == "resolved"
@@ -350,7 +350,7 @@ async def test_resolve_before_deadline_forbidden_for_non_root(app, stub_session,
     # closes_at is 3 days in the future (the default in seed_questions).
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     assert response.status_code == 403
 
 
@@ -358,7 +358,7 @@ async def test_resolve_before_deadline_root_override(app, as_user, seed_question
     as_user(AuthenticatedUser(uid="root", committees=(), is_root=True))
     [qid] = seed_questions(app, count=1, requester="alice")
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     assert response.status_code == 200
     body = await response.get_json()
     assert body["status"] == "resolved"
@@ -383,7 +383,7 @@ async def test_resolve_unanimous_with_active_veto(app, stub_session, seed_questi
         is_veto=True,
     )
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     assert response.status_code == 200
     body = await response.get_json()
     assert body["outcome"] == "vetoed"
@@ -422,7 +422,7 @@ async def test_resolve_unanimous_with_withdrawn_veto(
         created_at=later,
     )
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     body = await response.get_json()
     assert body["outcome"] == "approved", body
 
@@ -446,7 +446,7 @@ async def test_resolve_lazy_consensus_blocked_by_objection(
         comment="nope",
     )
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     body = await response.get_json()
     assert body["outcome"] == "insufficient_votes"
 
@@ -460,7 +460,7 @@ async def test_resolve_lazy_consensus_silent_is_approved(app, stub_session, seed
         closes_at=_past_iso(),
     )
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     body = await response.get_json()
     assert body["outcome"] == "approved"
 
@@ -479,7 +479,7 @@ async def test_resolve_majority_no_binding_votes_is_insufficient(
     seed_response(app, question_id=qid, voter="x", value="+1", is_binding=False)
     seed_response(app, question_id=qid, voter="y", value="+1", is_binding=False)
     client = app.test_client()
-    response = await client.post(f"/question/{qid}/resolve")
+    response = await client.post(f"/api/question/{qid}/resolve")
     body = await response.get_json()
     assert body["outcome"] == "insufficient_votes"
 

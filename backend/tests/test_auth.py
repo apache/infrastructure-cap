@@ -17,10 +17,13 @@ def _q(*, is_private: bool, project_id: str = "seapony"):
 
 
 def test_public_paths_match_exactly():
-    assert is_public_path("/api")
+    assert is_public_path("/api/api")
+    assert is_public_path("/api/docs")
     assert is_public_path("/auth")
     assert is_public_path("/auth/login")
-    assert not is_public_path("/list")
+    assert not is_public_path("/api")
+    assert not is_public_path("/api/list")
+    assert not is_public_path("/docs")
     assert not is_public_path("/")
 
 

@@ -1,7 +1,7 @@
-"""``/api`` endpoint serving the cached OpenAPI document. See SPEC section 9.9.
+"""``/api/api`` endpoint serving the cached OpenAPI document. See SPEC §9.9.
 
-Also hosts ``/docs``, a public Swagger UI page that renders the ``/api``
-document (SPEC section 9.10).
+Also hosts ``/api/docs``, a public Swagger UI page that renders the
+``/api/api`` document (SPEC §9.10).
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ _SWAGGER_UI_HTML = f"""<!DOCTYPE html>
     <script>
       window.onload = () => {{
         window.ui = SwaggerUIBundle({{
-          url: './api',
+          url: '/api/api',
           dom_id: '#swagger-ui',
           deepLinking: true,
           presets: [
@@ -62,12 +62,13 @@ def _build_document(app: Any) -> dict[str, Any]:
             "paths": {},
         }
     document = schema_ext.openapi_provider.schema()
+    document["paths"].pop('/static/{filename}', None)  # pop out the asfquart quirky endpoint
     if hasattr(document, "model_dump"):
         return document.model_dump(exclude_none=True, by_alias=True)
     return dict(document)
 
 
-@openapi_bp.get("/api")
+@openapi_bp.get("/api/api")
 async def openapi_document() -> Response:
     """Return the OpenAPI 3.x document for the entire service."""
     cache = current_app.extensions.setdefault(_CACHE_KEY, {})
@@ -82,9 +83,9 @@ async def openapi_document() -> Response:
     return response
 
 
-@openapi_bp.get("/docs")
+@openapi_bp.get("/api/docs")
 async def openapi_docs() -> Response:
-    """Return a Swagger UI HTML page rendering the ``/api`` document."""
+    """Return a Swagger UI HTML page rendering the ``/api/api`` document."""
     response = Response(_SWAGGER_UI_HTML, status=200, content_type="text/html; charset=utf-8")
     response.headers["Cache-Control"] = "public, max-age=300"
     return response

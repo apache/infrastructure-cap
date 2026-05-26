@@ -145,9 +145,13 @@ def build_app(settings: Settings | None = None) -> Any:
 
     _init_quart_schema(app)
 
+    # Every backend route is namespaced under /api/. The OpenAPI document
+    # lives at /api/api and Swagger UI at /api/docs (both served by the
+    # openapi blueprint, whose paths already include the prefix); questions
+    # and tokens get the prefix injected via url_prefix below.
     app.register_blueprint(openapi_bp)
-    app.register_blueprint(questions_bp)
-    app.register_blueprint(tokens_bp)
+    app.register_blueprint(questions_bp, url_prefix="/api")
+    app.register_blueprint(tokens_bp, url_prefix="/api")
 
     app.before_request(require_authentication)
 

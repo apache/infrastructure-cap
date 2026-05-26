@@ -218,7 +218,7 @@ async def test_build_event_payload_resolved_includes_tally_and_permalink(
         question_id=qid,
         details={
             "outcome": "approved",
-            "permalink": "/resolution/1",
+            "permalink": "/api/resolution/1",
             "tally": {"approval_type": "majority_approval", "binding_voters": []},
         },
     )
@@ -227,7 +227,7 @@ async def test_build_event_payload_resolved_includes_tally_and_permalink(
     payload = build_event_payload(db.conn, row)
     assert payload is not None
     assert payload["action"] == "resolved"
-    assert payload["permalink"] == "/resolution/1"
+    assert payload["permalink"] == "/api/resolution/1"
     assert payload["tally"]["approval_type"] == "majority_approval"
 
 
@@ -507,7 +507,7 @@ async def test_publisher_consumes_audit_rows_written_by_question_route(
         "response_option": {"kind": "vote"},
         "closes_at": "2026-12-31T00:00:00Z",
     }
-    create = await client.post("/question", json=body)
+    create = await client.post("/api/question", json=body)
     assert create.status_code == 201
     qid = (await create.get_json())["question_id"]
 

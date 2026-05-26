@@ -59,7 +59,7 @@ def _settings():
 
 def _permalink_for(question_id: int) -> str:
     base = _settings().server.permalink_base or ""
-    return f"{base}/resolution/{question_id}"
+    return f"{base}/api/resolution/{question_id}"
 
 
 def _notify(event: str, question: Question, *, actor: str, body: str) -> None:
@@ -179,7 +179,7 @@ async def create_question(data: CreateQuestionRequest) -> Any:
             f"{question.description}\n"
         ),
     )
-    return question, 201, {"Location": f"/question/{question_id}"}
+    return question, 201, {"Location": f"/api/question/{question_id}"}
 
 
 # ---------------------------------------------------------------------------
@@ -624,7 +624,7 @@ async def submit_response(question_id: int) -> Any:
             is_veto=is_veto,
         ),
     )
-    return stored, 201, {"Location": f"/question/{question_id}/responses/{response_id}"}
+    return stored, 201, {"Location": f"/api/question/{question_id}/responses/{response_id}"}
 
 
 # Re-export the AuthenticatedUser symbol so other modules importing from this

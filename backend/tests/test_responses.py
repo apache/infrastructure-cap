@@ -1,4 +1,4 @@
-"""Integration tests for POST /question/{id}/responses (SPEC §9.7).
+"""Integration tests for POST /api/question/{id}/responses (SPEC §9.7).
 
 Every test asserts the three artifacts every state change is expected to
 produce per the SPEC:
@@ -55,7 +55,7 @@ async def test_submit_vote_response_happy_path(app, stub_session, seed_questions
     [qid] = seed_questions(app, count=1, approval_type="majority_approval")
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert response.status_code == 201
@@ -68,7 +68,7 @@ async def test_submit_vote_response_happy_path(app, stub_session, seed_questions
     # seeded question has is_binding=True, so the snapshot must be binding.
     assert body["is_binding"] is True
     assert body["is_veto"] is False
-    assert response.headers["Location"].startswith(f"/question/{qid}/responses/")
+    assert response.headers["Location"].startswith(f"/api/question/{qid}/responses/")
 
     rows = _response_rows(app, qid)
     assert len(rows) == 1
@@ -96,7 +96,7 @@ async def test_submit_lazy_consensus_objection(app, stub_session, seed_questions
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "lazy_consensus", "objection": True, "comment": "concerns"},
     )
     assert response.status_code == 201
@@ -114,7 +114,7 @@ async def test_submit_free_text(app, stub_session, seed_questions, captured_emai
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "free_text", "text": "hello there"},
     )
     assert response.status_code == 201
@@ -133,7 +133,7 @@ async def test_binding_minus_one_on_unanimous_without_comment_rejected(
     [qid] = seed_questions(app, count=1, approval_type="unanimous_approval")
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "-1"},
     )
     assert response.status_code == 400
@@ -151,7 +151,7 @@ async def test_binding_minus_one_on_unanimous_with_comment_is_veto(
     [qid] = seed_questions(app, count=1, approval_type="unanimous_approval")
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "-1", "comment": "tech reason"},
     )
     assert response.status_code == 201
@@ -172,7 +172,7 @@ async def test_non_binding_minus_one_on_unanimous_records_no_veto(app, as_user, 
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "-1"},  # no comment required
     )
     assert response.status_code == 201
@@ -185,7 +185,7 @@ async def test_veto_withdrawal_appends_new_row(app, stub_session, seed_questions
     [qid] = seed_questions(app, count=1, approval_type="unanimous_approval")
     client = app.test_client()
     veto = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "-1", "comment": "hold on"},
     )
     assert veto.status_code == 201
@@ -194,7 +194,7 @@ async def test_veto_withdrawal_appends_new_row(app, stub_session, seed_questions
     # Same voter submits a non-veto vote: the latest response wins for tally,
     # but the old row is preserved (§7.2).
     withdrawn = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert withdrawn.status_code == 201
@@ -219,7 +219,7 @@ async def test_kind_mismatch_with_question_option_rejected(app, stub_session, se
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "free_text", "text": "nope"},
     )
     assert response.status_code == 400
@@ -237,7 +237,7 @@ async def test_vote_value_not_in_allowed_values_rejected(app, stub_session, seed
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+0"},
     )
     assert response.status_code == 400
@@ -253,7 +253,7 @@ async def test_free_text_exceeding_max_length_rejected(app, stub_session, seed_q
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "free_text", "text": "this is far too long for the cap"},
     )
     assert response.status_code == 400
@@ -272,7 +272,7 @@ async def test_response_after_deadline_rejected_with_409(
     [qid] = seed_questions(app, count=1, closes_at=_past_iso(10))
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert response.status_code == 409
@@ -296,7 +296,7 @@ async def test_response_to_resolved_question_rejected_with_409(app, stub_session
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert response.status_code == 409
@@ -313,7 +313,7 @@ async def test_response_to_removed_question_rejected_with_409(app, stub_session,
     )
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert response.status_code == 409
@@ -328,7 +328,7 @@ async def test_response_unauthenticated(app, seed_questions, captured_emails):
     [qid] = seed_questions(app, count=1)
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
         headers={"Accept": "application/json"},
     )
@@ -339,7 +339,7 @@ async def test_response_unauthenticated(app, seed_questions, captured_emails):
 async def test_response_to_unknown_question_returns_404(app, stub_session):
     client = app.test_client()
     response = await client.post(
-        "/question/99999/responses",
+        "/api/question/99999/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert response.status_code == 404
@@ -350,7 +350,7 @@ async def test_response_to_private_question_outsider_sees_404(app, as_user, seed
     [qid] = seed_questions(app, count=1, project_id="seapony", is_private=1)
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     # Per SPEC §7.5, ACL denial collapses to 404, not 403.
@@ -367,7 +367,7 @@ async def test_response_invalid_body_rejected(app, stub_session, seed_questions)
     [qid] = seed_questions(app, count=1)
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote"},  # missing required `value`
     )
     assert response.status_code == 400
@@ -377,7 +377,7 @@ async def test_response_unknown_kind_rejected(app, stub_session, seed_questions)
     [qid] = seed_questions(app, count=1)
     client = app.test_client()
     response = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "bogus", "value": "+1"},
     )
     assert response.status_code == 400
@@ -394,13 +394,13 @@ async def test_get_question_includes_submitted_response(
     [qid] = seed_questions(app, count=1)
     client = app.test_client()
     post = await client.post(
-        f"/question/{qid}/responses",
+        f"/api/question/{qid}/responses",
         json={"kind": "vote", "value": "+1", "comment": "lgtm"},
     )
     assert post.status_code == 201
     new_rid = (await post.get_json())["response_id"]
 
-    detail = await client.get(f"/question/{qid}")
+    detail = await client.get(f"/api/question/{qid}")
     assert detail.status_code == 200
     body = await detail.get_json()
     rids = [r["response_id"] for r in body["responses"]]

@@ -1,4 +1,4 @@
-"""Personal-access-token store and /token endpoint tests. SPEC §6.4 + §9.12."""
+"""Personal-access-token store and /api/token endpoint tests. SPEC §6.4 + §9.12."""
 
 from __future__ import annotations
 
@@ -121,13 +121,13 @@ def test_authenticated_user_oauth_session_has_no_scope_restriction():
 
 
 # ---------------------------------------------------------------------------
-# /token HTTP endpoint
+# /api/token HTTP endpoint
 # ---------------------------------------------------------------------------
 
 
 async def test_post_token_issues_token_for_oauth_session(app, stub_session):
     client = app.test_client()
-    response = await client.post("/token")
+    response = await client.get("/api/token")
     assert response.status_code == 201
     body = await response.get_json()
     assert body["uid"] == "alice"
@@ -140,7 +140,7 @@ async def test_post_token_issues_token_for_oauth_session(app, stub_session):
 
 async def test_post_token_unauthenticated_returns_401(app):
     client = app.test_client()
-    response = await client.post("/token")
+    response = await client.get("/api/token")
     assert response.status_code == 401
 
 
@@ -160,7 +160,7 @@ async def test_post_token_rejects_token_session(app, monkeypatch):
 
     monkeypatch.setattr(auth_module, "_read_session", _read)
     client = app.test_client()
-    response = await client.post("/token")
+    response = await client.get("/api/token")
     assert response.status_code == 403
     body = await response.get_json()
     assert body["error"] == "token_session_cannot_issue"
@@ -170,7 +170,7 @@ async def test_post_token_respects_per_uid_cap(app, stub_session):
     client = app.test_client()
     tokens: list[str] = []
     for _ in range(MAX_TOKENS_PER_UID + 2):
-        response = await client.post("/token")
+        response = await client.get("/api/token")
         assert response.status_code == 201
         body = await response.get_json()
         tokens.append(body["token"])
@@ -234,7 +234,7 @@ async def test_ask_token_can_create_question(app, token_session):
         },
         "closes_at": (datetime.now(UTC) + timedelta(days=2)).isoformat(),
     }
-    response = await client.post("/question", json=body)
+    response = await client.post("/api/question", json=body)
     assert response.status_code == 201
 
 
@@ -243,7 +243,7 @@ async def test_ask_token_cannot_answer(app, token_session, seed_questions):
     qids = seed_questions(app, count=1)
     client = app.test_client()
     response = await client.post(
-        f"/question/{qids[0]}/responses",
+        f"/api/question/{qids[0]}/responses",
         json={"kind": "vote", "value": "+1"},
     )
     assert response.status_code == 403
@@ -257,7 +257,7 @@ async def test_ask_token_can_call_public_scope_endpoints(app, token_session, see
     token_session(scopes=["ask"])
     seed_questions(app, count=1)
     client = app.test_client()
-    response = await client.get("/list")
+    response = await client.get("/api/list")
     assert response.status_code == 200
 
 
@@ -279,7 +279,7 @@ async def test_answer_only_token_cannot_create_question(app, token_session):
         },
         "closes_at": (datetime.now(UTC) + timedelta(days=2)).isoformat(),
     }
-    response = await client.post("/question", json=body)
+    response = await client.post("/api/question", json=body)
     assert response.status_code == 403
     body = await response.get_json()
     assert body["error"] == "insufficient_scope"
