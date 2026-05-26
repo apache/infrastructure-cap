@@ -19,3 +19,9 @@ pubsub:
 
 logging:
   level: "INFO"
+
+notifications:
+  # When set to a non-empty address, every notification email is redirected
+  # there instead of the project mailing list. Leave empty (or omit) in
+  # production.
+  debug_recipient: ""

@@ -35,18 +35,19 @@ NotificationEvent = Literal[
     "response",
 ]
 
-DEBUG_RECIPIENT = None  # Set to whatever you want all test emails to go to
-
-
-def recipient_for(question: Question | Any) -> str:
+def recipient_for(
+    question: Question | Any, *, debug_recipient: str | None = None
+) -> str:
     """Return the mailing-list address for ``question``.
 
-    Private questions go to ``private@{project}.apache.org``; everything else
-    goes to ``dev@{project}.apache.org``. The project component is taken
-    verbatim from ``question.project_id``.
+    If ``debug_recipient`` is a non-empty string, every notification is
+    redirected there. Otherwise private questions go to
+    ``private@{project}.apache.org`` and everything else goes to
+    ``dev@{project}.apache.org``. The project component is taken verbatim
+    from ``question.project_id``.
     """
-    if DEBUG_RECIPIENT:
-        return DEBUG_RECIPIENT
+    if debug_recipient:
+        return debug_recipient
     project = question.project_id
     if getattr(question, "is_private", False):
         return f"private@{project}.apache.org"
@@ -88,6 +89,7 @@ def send(
     *,
     actor: str,
     body: str,
+    debug_recipient: str | None = None,
 ) -> bool:
     """Send a single notification email. Returns True on apparent success.
 
@@ -95,7 +97,7 @@ def send(
     swallowed. The audit log is the durable record; email is a courtesy
     notification and must not roll back a successful state change.
     """
-    recipient = recipient_for(question)
+    recipient = recipient_for(question, debug_recipient=debug_recipient)
     subject = _subject_for(event, question)
     thread_key = _thread_key_for(question)
     is_thread_start = event == "created"

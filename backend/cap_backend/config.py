@@ -62,6 +62,14 @@ class LoggingSettings(BaseModel):
     level: str = "INFO"
 
 
+class NotificationsSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # When set to a non-empty address, every notification email is redirected
+    # there instead of the project list. Leave empty (or omit) in production.
+    debug_recipient: str | None = None
+
+
 class Settings(BaseModel):
     """Top-level configuration. Unknown keys are rejected."""
 
@@ -72,6 +80,7 @@ class Settings(BaseModel):
     oauth: OAuthSettings = Field(default_factory=OAuthSettings)
     pubsub: PubsubSettings = Field(default_factory=PubsubSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    notifications: NotificationsSettings = Field(default_factory=NotificationsSettings)
 
 
 def resolve_config_path(cli_path: str | None = None) -> Path:

@@ -66,7 +66,14 @@ def _permalink_for(question_id: int) -> str:
 
 def _notify(event: str, question: Question, *, actor: str, body: str) -> None:
     """Best-effort send; failures are logged inside notify.send()."""
-    notify.send(event=event, question=question, actor=actor, body=body)  # type: ignore[arg-type]
+    debug_recipient = _settings().notifications.debug_recipient
+    notify.send(  # type: ignore[arg-type]
+        event=event,
+        question=question,
+        actor=actor,
+        body=body,
+        debug_recipient=debug_recipient,
+    )
 
 
 # ---------------------------------------------------------------------------
