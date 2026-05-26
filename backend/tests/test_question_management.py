@@ -23,7 +23,6 @@ from cap_backend.auth import AuthenticatedUser
 
 def _create_body(**overrides):
     body = {
-        "request_id": "req_test",
         "project_id": "seapony",
         "title": "Sample question",
         "description": "Description body",

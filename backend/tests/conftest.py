@@ -103,6 +103,7 @@ def captured_emails(monkeypatch) -> list[dict]:
 @pytest.fixture
 def seed_questions():
     """Return a helper that inserts question rows directly into the database."""
+    import uuid
 
     def _insert(app, *, count: int = 1, **overrides) -> list[int]:
         db = app.extensions["cap_db"]
@@ -110,7 +111,10 @@ def seed_questions():
         ids: list[int] = []
         for i in range(count):
             defaults = {
-                "request_id": f"req_{i}",
+                # Unique per row; the UNIQUE constraint on questions.request_id
+                # (SPEC §7.1) means duplicate values would otherwise crash the
+                # second seed_questions call in a test.
+                "request_id": f"req_{uuid.uuid4().hex}",
                 "project_id": "seapony",
                 "title": f"Question {i}",
                 "description": "...",

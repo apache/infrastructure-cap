@@ -105,13 +105,18 @@ async def create_question(data: CreateQuestionRequest) -> Any:
     if data.project_id not in user.committees and not user.is_root:
         return jsonify({"error": "not_committee_member"}), 403
 
+    # request_id is server-assigned (SPEC §9.2): clients cannot supply it,
+    # and the UNIQUE constraint on questions.request_id guarantees no row
+    # ever shares an id with another.
+    request_id = str(uuid.uuid4())
+
     db = current_app.extensions["cap_db"]
     async with db.write_lock:
         try:
             db.conn.execute("BEGIN IMMEDIATE")
             question_id = dao.insert_question(
                 db.conn,
-                request_id=data.request_id,
+                request_id=request_id,
                 project_id=data.project_id,
                 title=data.title,
                 description=data.description,
@@ -128,7 +133,7 @@ async def create_question(data: CreateQuestionRequest) -> Any:
                 action="question.create",
                 actor=user.uid,
                 question_id=question_id,
-                details={"request_id": data.request_id, "project_id": data.project_id},
+                details={"request_id": request_id, "project_id": data.project_id},
             )
             db.conn.execute("COMMIT")
         except Exception:

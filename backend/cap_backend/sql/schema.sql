@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS questions (
     question_id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    request_id           TEXT NOT NULL,
+    request_id           TEXT NOT NULL UNIQUE,
     project_id           TEXT NOT NULL,
     title                TEXT NOT NULL,
     description          TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS questions (
     CHECK ((status = 'open') = (outcome IS NULL))
 );
 
-CREATE INDEX IF NOT EXISTS idx_questions_request_id ON questions(request_id);
+-- `request_id` has an implicit unique index from its UNIQUE constraint.
 CREATE INDEX IF NOT EXISTS idx_questions_project_id ON questions(project_id);
 CREATE INDEX IF NOT EXISTS idx_questions_status     ON questions(status);
 CREATE INDEX IF NOT EXISTS idx_questions_closes_at  ON questions(closes_at);

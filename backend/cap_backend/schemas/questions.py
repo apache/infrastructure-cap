@@ -84,11 +84,15 @@ class QuestionDetail(BaseModel):
 
 
 class CreateQuestionRequest(BaseModel):
-    """Body for ``POST /question`` (reserved for a future iteration)."""
+    """Body for ``POST /question``.
+
+    ``request_id`` and ``question_id`` are server-assigned (SPEC §9.2) and
+    must not appear in the request body; the model rejects them via
+    ``extra="forbid"``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    request_id: RequestID
     project_id: str
     title: str = Field(..., max_length=200)
     description: str = Field(..., max_length=10_000)

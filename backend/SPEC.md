@@ -354,9 +354,18 @@ keeping the column count stable as new response kinds are added.
 ```sql
 CREATE TABLE IF NOT EXISTS questions (
     question_id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                      -- numerical, monotonic;
+                                                      -- numerical, monotonic,
+                                                      -- globally unique;
+                                                      -- server-assigned on
+                                                      -- INSERT (clients MUST
+                                                      -- NOT supply it);
                                                       -- used in the pubsub URL
-    request_id           TEXT NOT NULL,               -- RequestID (parent group)
+    request_id           TEXT NOT NULL UNIQUE,        -- RequestID; MUST be
+                                                      -- globally unique across
+                                                      -- the questions table
+                                                      -- and is server-assigned
+                                                      -- on INSERT (clients MUST
+                                                      -- NOT supply it).
     project_id           TEXT NOT NULL,               -- ASF project id, matched
                                                       -- against session.committees
     title                TEXT NOT NULL,
@@ -394,7 +403,8 @@ CREATE TABLE IF NOT EXISTS questions (
     CHECK ((status = 'open') = (outcome IS NULL))
 );
 
-CREATE INDEX IF NOT EXISTS idx_questions_request_id ON questions(request_id);
+-- `request_id` already has an implicit unique index from its UNIQUE
+-- constraint above, so no separate index is created here.
 CREATE INDEX IF NOT EXISTS idx_questions_project_id ON questions(project_id);
 CREATE INDEX IF NOT EXISTS idx_questions_status     ON questions(status);
 CREATE INDEX IF NOT EXISTS idx_questions_closes_at  ON questions(closes_at);
@@ -406,7 +416,18 @@ server can hand out a monotonically increasing numerical id (1, 2,
 SQLite's `AUTOINCREMENT` keyword (rather than the default implicit
 rowid alias) is used deliberately because pubsub consumers may use
 `question_id` as a stable cursor, and we must not reuse ids even
-after a question is removed.
+after a question is removed. `question_id` is always assigned by
+the server on INSERT; clients cannot pre-allocate or supply one.
+
+`request_id` carries a `UNIQUE` constraint at the SQL level, so two
+questions may never share the same `request_id`. The intent is that
+each request maps to exactly one question row. `request_id` is
+allocated by the server when the row is inserted (a fresh ULID/UUID,
+generated alongside the `AUTOINCREMENT` `question_id`); clients MUST
+NOT supply or pre-allocate a `request_id`. The value is a stable
+external identifier for the request and is the string used in any
+external reference that needs to be opaque (whereas `question_id` is
+the numerical id used in pubsub URLs).
 
 The row-to-Pydantic mapping is:
 
@@ -446,7 +467,11 @@ reason `response_option_json` is on `questions`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS responses (
-    response_id    TEXT PRIMARY KEY,                  -- ULID/UUID
+    response_id    TEXT PRIMARY KEY,                  -- ULID/UUID; globally
+                                                      -- unique and server-
+                                                      -- assigned on INSERT
+                                                      -- (clients MUST NOT
+                                                      -- supply it).
     question_id    TEXT NOT NULL
         REFERENCES questions(question_id) ON DELETE CASCADE,
     voter          TEXT NOT NULL,                     -- ASFUserID
@@ -652,12 +677,23 @@ the 404 case covers both "no such id" and "id exists but ACL denies".
   matching `^[a-z][a-z0-9_-]*$`).
 - `IsoTimestamp`: `datetime` with `model_config` set to serialize as
   ISO 8601 UTC.
-- `RequestID`: opaque string identifier for a CAP request (the parent
-  grouping; one request can produce many `Question` rows, one per voter).
+- `RequestID`: opaque string identifier (ULID/UUID) for a CAP request.
+  Globally unique across the `questions` table (enforced by the
+  `UNIQUE` constraint in section 7.1) and stable for the lifetime of
+  the question. Server-assigned when the question row is created;
+  clients MUST NOT supply or pre-allocate a `request_id`. Returned in
+  the `POST /question` response and exposed by every read endpoint so
+  callers can reference the question by its opaque external id without
+  having to know its numerical `question_id`.
 - `QuestionID`: a positive integer issued by SQLite's `AUTOINCREMENT`
   sequence on the `questions` table. Numerical so it can be embedded
   in the pypubsub URL (section 10), and monotonic so consumers can use
-  it as a stable cursor.
+  it as a stable cursor. Globally unique and assigned by the server on
+  INSERT; clients MUST NOT supply or pre-allocate a `question_id`.
+- `ResponseID`: opaque string (ULID/UUID) primary key of the
+  `responses` table. Globally unique and assigned by the server when
+  the response row is created; clients MUST NOT supply or pre-allocate
+  a `response_id`.
 
 ### 8.2 Response option schemas (`schemas/responses.py`)
 
@@ -726,9 +762,14 @@ against the matching discriminator at submission time.
 
 ### 8.3 Question schema (`schemas/questions.py`)
 
-A `Question` represents a single pending item shown to one voter for
-one CAP request. The same CAP request can produce many questions (one
-per voter), all sharing a `request_id`.
+A `Question` represents a single pending CAP request. It is presented
+to every voter in the target audience via `/list`, and each voter's
+reply is recorded as a row in the `responses` table. There is a 1:1
+mapping between `request_id` and `question_id`: both are globally
+unique server-assigned identifiers for the same row in the `questions`
+table (the former is the opaque ULID/UUID exposed to external
+consumers, the latter the numerical id used in pubsub URLs). Clients
+never supply either value.
 
 ```python
 class Question(BaseModel):
@@ -941,13 +982,16 @@ Create a new question. All persisted fields originate here.
   receives `403 Forbidden`. (Admin override is via the `/admin/`
   endpoints in section 9.11, not here.)
 - **Request body**: `CreateQuestionRequest` (Pydantic), carrying
-  every persisted column the caller controls: `request_id`,
-  `project_id`, `title`, `description`, `target_audience`,
-  `approval_type`, `is_binding`, `is_private`, `response_option`,
-  `closes_at`. `question_id`, `requester`, `created_at`,
-  `updated_at`, `status`, `outcome`, and `permalink` are
-  server-assigned and **must not** appear in the request body (the
-  model uses `extra="forbid"`).
+  every persisted column the caller controls: `project_id`, `title`,
+  `description`, `target_audience`, `approval_type`, `is_binding`,
+  `is_private`, `response_option`, `closes_at`. `request_id`,
+  `question_id`, `requester`, `created_at`, `updated_at`, `status`,
+  `outcome`, and `permalink` are server-assigned and **must not**
+  appear in the request body (the model uses `extra="forbid"`).
+  `question_id` is allocated by SQLite's `AUTOINCREMENT` sequence
+  when the row is inserted; `request_id` is a freshly generated
+  ULID/UUID assigned in the same transaction. Neither value can be
+  chosen by the client.
 - **Response**: `201 Created`, body is the freshly-created
   `Question` (with the server-issued integer `question_id` and the
   computed `viewer_is_binding`/`time_remaining_seconds` fields).
@@ -960,9 +1004,13 @@ Create a new question. All persisted fields originate here.
   True`); a delivery failure is logged but does not roll back the
   database write.
 - **Errors**: `400`/`422` (malformed body or unknown field — the
-  request model uses `extra="forbid"`), `403` (not on the project's
-  committee — root may file on behalf of any project), `409`
-  (duplicate `request_id` if uniqueness is later enforced).
+  request model uses `extra="forbid"`, so a client-supplied
+  `request_id` or `question_id` is rejected here), `403` (not on the
+  project's committee — root may file on behalf of any project). A
+  `409` from a `request_id` collision is not expected in practice
+  because the server allocates the value, but the `UNIQUE` constraint
+  on `questions.request_id` still guards against bugs in the
+  allocator and would surface as `409 Conflict` if it ever fired.
 
 ### 9.3 `GET /question/{question_id}`
 
@@ -1118,9 +1166,14 @@ Submit a new response, or amend the caller's previous response.
 - **Request body**: a `SubmittedResponse` (the discriminated union
   from section 8.2). For `vote` responses on
   `unanimous_approval` questions, a non-empty `comment` is
-  required when `value == "-1"` (the veto reason).
+  required when `value == "-1"` (the veto reason). The request body
+  does **not** carry a `response_id`; the server allocates a new
+  unique `response_id` (ULID/UUID) for every accepted submission,
+  and clients MUST NOT attempt to supply one.
 - **Server-computed fields** (not in the request body; populated
   by the handler before insert):
+  - `response_id` — freshly generated ULID/UUID, unique across all
+    rows in the `responses` table
   - `is_binding = question.is_binding AND
     project_id in current_user.committees`
   - `is_veto = (approval_type == 'unanimous_approval'

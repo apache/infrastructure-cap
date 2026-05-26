@@ -497,7 +497,6 @@ async def test_publisher_consumes_audit_rows_written_by_question_route(
     """A POST /question creates an audit row that the publisher then emits."""
     client = app.test_client()
     body = {
-        "request_id": "req_pub",
         "project_id": "seapony",
         "title": "Pubsub roundtrip",
         "description": "...",

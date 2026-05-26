@@ -22,7 +22,11 @@ RequestID = Annotated[
     Field(
         min_length=1,
         max_length=64,
-        description="Opaque identifier for a CAP request (parent group of one or more questions).",
+        description=(
+            "Opaque identifier (ULID/UUID) for a CAP request. Globally unique "
+            "across the questions table and server-assigned on INSERT; clients "
+            "MUST NOT supply it."
+        ),
     ),
 ]
 
@@ -30,7 +34,11 @@ QuestionID = Annotated[
     int,
     Field(
         ge=1,
-        description="Monotonic numerical id issued by SQLite's AUTOINCREMENT sequence.",
+        description=(
+            "Monotonic numerical id issued by SQLite's AUTOINCREMENT sequence. "
+            "Globally unique and server-assigned on INSERT; clients MUST NOT "
+            "supply it."
+        ),
     ),
 ]
 
