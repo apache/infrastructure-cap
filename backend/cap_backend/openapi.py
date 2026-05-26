@@ -62,7 +62,7 @@ def _build_document(app: Any) -> dict[str, Any]:
             "paths": {},
         }
     document = schema_ext.openapi_provider.schema()
-    document["paths"].pop('/static/{filename}', None)  # pop out the asfquart quirky endpoint
+    document["paths"].pop("/static/{filename}", None)  # pop out the asfquart quirky endpoint
     if hasattr(document, "model_dump"):
         return document.model_dump(exclude_none=True, by_alias=True)
     return dict(document)

@@ -16,7 +16,7 @@ tokens_bp = Blueprint("tokens", __name__)
 
 async def _unauthenticated_response() -> tuple[Any, int]:
     return (
-        jsonify({"error": "authentication_required", "login_url": "/auth"}),
+        jsonify({"error": "authentication_required", "login_url": "/api/auth"}),
         401,
     )
 

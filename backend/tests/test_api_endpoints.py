@@ -60,7 +60,7 @@ async def test_list_unauthenticated_html_redirects_to_oauth(app):
     client = app.test_client()
     response = await client.get("/api/list", headers={"Accept": "text/html"})
     assert response.status_code in (301, 302, 303, 307, 308)
-    assert "/auth" in response.headers.get("Location", "")
+    assert "/api/auth" in response.headers.get("Location", "")
 
 
 async def test_list_returns_seeded_questions_for_authenticated_user(

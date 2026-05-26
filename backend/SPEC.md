@@ -17,24 +17,29 @@ covers:
    OpenAPI surface, and the response normalizer described in section 3.1.
 2. Defining a typed schema (via Pydantic) for questions, responses, errors,
    and the resolution permalink record.
-3. Exposing the following endpoints:
-   - `GET /api` — the auto-generated OpenAPI specification for the entire
-     HTTP API. Public (no auth).
-   - `GET /docs` — a Swagger UI HTML page that renders the `/api`
+3. Exposing the following endpoints (every backend route lives under
+   the `/api/` prefix, including the asfquart OAuth gateway):
+   - `GET /api/api` — the auto-generated OpenAPI specification for the
+     entire HTTP API. Public (no auth).
+   - `GET /api/docs` — a Swagger UI HTML page that renders the `/api/api`
      document for interactive browsing. Public (no auth).
-   - `GET /list` — the list of pending questions visible to the currently
-     authenticated user.
-   - `POST /question` — create a new question.
-   - `GET /question/{id}` — fetch a single question and all of its
+   - `GET /api/auth` — asfquart's OAuth gateway (mounted via the
+     `oauth="/api/auth"` argument to `asfquart.construct(...)`).
+     Public (no auth).
+   - `GET /api/list` — the list of pending questions visible to the
+     currently authenticated user.
+   - `POST /api/question` — create a new question.
+   - `GET /api/question/{id}` — fetch a single question and all of its
      recorded responses.
-   - `PATCH /question/{id}` — edit a question's metadata while it is
-     still open.
-   - `DELETE /question/{id}` — withdraw a question before it resolves.
-   - `POST /question/{id}/resolve` — finalize a question, run the tally,
-     and issue its permalink.
-   - `POST /question/{id}/responses` — submit a new response, or amend
-     the caller's previous response.
-   - `POST /token` — issue a personal-access bearer token for the
+   - `PATCH /api/question/{id}` — edit a question's metadata while it
+     is still open.
+   - `DELETE /api/question/{id}` — withdraw a question before it
+     resolves.
+   - `POST /api/question/{id}/resolve` — finalize a question, run the
+     tally, and issue its permalink.
+   - `POST /api/question/{id}/responses` — submit a new response, or
+     amend the caller's previous response.
+   - `GET /api/token` — issue a personal-access bearer token for the
      currently authenticated user (scoped to `ask`, expiring after 24
      hours, capped at five live tokens per ASF UID).
 4. Recording every state-changing action in an append-only audit log
@@ -45,7 +50,7 @@ covers:
    route to `private@{project}.apache.org`; public questions route to
    `dev@{project}.apache.org`.
 
-The remaining CAP workflow endpoint (`GET /resolution/{id}`, the
+The remaining CAP workflow endpoint (`GET /api/resolution/{id}`, the
 permalink endpoint in section 9.8) is specified but not yet
 implemented. The Pydantic schema layer and audit-log discipline
 already accommodate it.
@@ -107,22 +112,22 @@ backend/
     │                           # audit_log and POSTs events to a
     │                           # pypubsub instance (section 10)
     ├── openapi.py              # /api endpoint (OpenAPI document) and
-    │                           # /docs endpoint (Swagger UI HTML)
+    │                           # /api/docs endpoint (Swagger UI HTML)
     ├── tokens.py               # in-memory bearer-token (PAT) store
     │                           # and asfquart token_handler factory
     │                           # (sections 6.4 and 9.12)
     ├── routes/
     │   ├── __init__.py
-    │   ├── questions.py        # all `/list`, `/question/*`,
-    │   │                       # `/question/<id>/resolve` and
-    │   │                       # `/question/<id>/responses` handlers
-    │   └── tokens.py           # `POST /token` (issue PAT, section 9.12)
+    │   ├── questions.py        # all `/api/list`, `/api/question/*`,
+    │   │                       # `/api/question/<id>/resolve` and
+    │   │                       # `/api/question/<id>/responses` handlers
+    │   └── tokens.py           # `GET /api/token` (issue PAT, section 9.12)
     ├── schemas/
     │   ├── __init__.py
     │   ├── common.py           # shared primitives (ASF UID, timestamps)
     │   ├── errors.py           # `AuthenticationRequired`, `ErrorMessage`
     │   ├── responses.py        # response-option schemas (dynamic)
-    │   ├── tokens.py           # `TokenIssued` body for POST /token
+    │   ├── tokens.py           # `TokenIssued` body for GET /api/token
     │   └── questions.py        # Question, ListResponse, QuestionDetail,
     │                           # CreateQuestionRequest, EditQuestionRequest,
     │                           # ResolutionRecord
@@ -143,9 +148,9 @@ them:
    `@validate_request(...)`, `@validate_response(Model, status)` and
    `@document_response(ErrorModel, status)` decorators from
    `quart_schema`; a route that returns `jsonify(...)` without these
-   decorators is functionally correct but shows up in `/api` as an
-   undocumented endpoint (empty `responses`, no referenced schemas).
-2. **`asfquart`'s `/auth` returns a `ClientSession` (a `dict`
+   decorators is functionally correct but shows up in `/api/api` as
+   an undocumented endpoint (empty `responses`, no referenced schemas).
+2. **`asfquart`'s `/api/auth` returns a `ClientSession` (a `dict`
    subclass) directly when the caller is logged in.** `quart-schema`'s
    response converter dispatches dict-like return values through
    `pydantic.TypeAdapter(type(value)).dump_python(value)`, which then
@@ -226,8 +231,8 @@ server:
   host: "0.0.0.0"
   port: 8085
   # Base URL prepended to issued permalinks (section 9.6 / 9.8).
-  # Empty string yields bare paths like "/resolution/4217" (useful in
-  # dev); production should set this to the public host, e.g.
+  # Empty string yields bare paths like "/api/resolution/4217" (useful
+  # in dev); production should set this to the public host, e.g.
   # "https://cap.apache.org".
   permalink_base: ""
 
@@ -273,14 +278,15 @@ without authentication by accident.
 
 Enforcement strategy:
 
-1. The OAuth gateway provided by `asfquart` (mounted at `/auth` by
-   `asfquart.construct(...)`) is left at its default mount point and
-   is unauthenticated (it has to be, in order to perform the login
-   handshake). `GET /api` is also exempt, so the OpenAPI specification
-   can be consumed by external tooling without an ASF account, as is
-   `GET /docs`, the Swagger UI page that renders it (section 9.10).
-   These are the only unauthenticated paths; every other route,
-   including any added in the future, requires login by default.
+1. The OAuth gateway provided by `asfquart` is mounted under the
+   global `/api/` prefix (passed in as `oauth="/api/auth"` to
+   `asfquart.construct(...)`) and is unauthenticated (it has to be,
+   in order to perform the login handshake). `GET /api/api` is also
+   exempt, so the OpenAPI specification can be consumed by external
+   tooling without an ASF account, as is `GET /api/docs`, the Swagger
+   UI page that renders it (section 9.10). These are the only
+   unauthenticated paths; every other route, including any added in
+   the future, requires login by default.
 2. A `before_request` hook in `cap_backend/auth.py`
    (`require_authentication`) inspects the session for an authenticated
    ASF user. If absent, the hook:
@@ -290,7 +296,7 @@ Enforcement strategy:
    - For API-style requests (Accept includes `application/json`, or no
      `Accept` header is supplied — JSON is the API-server default):
      returns `401 Unauthorized` with a JSON body
-     `{"error": "authentication_required", "login_url": "/auth?..."}`.
+     `{"error": "authentication_required", "login_url": "/api/auth?..."}`.
    The body matches the `AuthenticationRequired` Pydantic model in
    `cap_backend/schemas/errors.py`; every authenticated route declares
    the same 401 shape via `@document_response(AuthenticationRequired,
@@ -309,22 +315,22 @@ Enforcement strategy:
    Handlers retrieve the user via `await current_user()` rather than
    touching the session directly. The `committees` tuple is what
    determines binding eligibility when a response is submitted (see
-   section 7.2) and gates `POST /question` on the caller's project
+   section 7.2) and gates `POST /api/question` on the caller's project
    membership (see section 9.2).
 
 Authorization beyond "logged in" is layered on per route:
 
-- Standard endpoints (e.g. `/list`) require only that the global hook
-  has accepted the request.
+- Standard endpoints (e.g. `/api/list`) require only that the global
+  hook has accepted the request.
 - Administrative endpoints (see section 9.11) additionally require
   `session.isRoot`, declared via the asfquart decorator
   `@asfquart.auth.require(R.root)`.
 
-The OpenAPI document served from `GET /api` is intentionally public,
-so external integrators can introspect the API without going through
-the OAuth flow. The document itself declares the OAuth security
-requirement on every other endpoint, so it is self-describing about
-which routes need login.
+The OpenAPI document served from `GET /api/api` is intentionally
+public, so external integrators can introspect the API without going
+through the OAuth flow. The document itself declares the OAuth
+security requirement on every other endpoint, so it is self-describing
+about which routes need login.
 
 ### 6.3 Endpoint scopes
 
@@ -343,15 +349,16 @@ Endpoints that fail the scope check return `403 Forbidden` with body
 `{"error": "insufficient_scope", "required_scope": "<scope>"}`. The
 scope assignment for the existing routes is:
 
-| Scope     | Endpoints                                                                                                |
-|-----------|----------------------------------------------------------------------------------------------------------|
-| `ask`     | `POST /question`, `PATCH /question/{id}`, `DELETE /question/{id}`, `POST /question/{id}/resolve`         |
-| `answer`  | `POST /question/{id}/responses`                                                                          |
-| `public`  | `GET /list`, `GET /question/{id}`, `GET /resolution/{id}`                                                |
+| Scope     | Endpoints                                                                                                                |
+|-----------|--------------------------------------------------------------------------------------------------------------------------|
+| `ask`     | `POST /api/question`, `PATCH /api/question/{id}`, `DELETE /api/question/{id}`, `POST /api/question/{id}/resolve`         |
+| `answer`  | `POST /api/question/{id}/responses`                                                                                      |
+| `public`  | `GET /api/list`, `GET /api/question/{id}`, `GET /api/resolution/{id}`                                                    |
 
-`/api`, `/docs`, and `/auth` are unauthenticated and therefore not
-governed by a scope. `POST /token` is itself scope-less (it requires an
-OAuth session and explicitly refuses token sessions; see section 9.12).
+`/api/api`, `/api/docs`, and `/api/auth` are unauthenticated and
+therefore not governed by a scope. `GET /api/token` is itself scope-less
+(it requires an OAuth session and explicitly refuses token sessions;
+see section 9.12).
 Scopes assigned here apply to the *currently specified* endpoints only:
 new routes added in later iterations will declare their own scope and
 this table will be expanded alongside them.
@@ -399,7 +406,7 @@ Token-store invariants:
 - The handler returns `metadata.scope = ["ask"]` on every successful
   lookup. The `AuthenticatedUser.from_session(...)` projection
   populates `scopes = frozenset({"ask"})` and `is_token_session = True`
-  so downstream code (the scope helper, the `/token` endpoint) can
+  so downstream code (the scope helper, the `/api/token` endpoint) can
   distinguish PAT-authenticated requests from OAuth ones.
 
 The `AuthenticatedUser` dataclass therefore carries two new fields:
@@ -711,7 +718,7 @@ resolve. The resolver loop applies the same ordering: when
 `closes_at` is reached it first stops accepting responses, then
 runs the tally on the frozen response set.
 
-**Acceptance order for `POST /question/{id}/resolve`:**
+**Acceptance order for `POST /api/question/{id}/resolve`:**
 
 1. If `q.status != 'open'`, return the existing resolved record
    (idempotent, see section 9.6).
@@ -722,7 +729,7 @@ runs the tally on the frozen response set.
    `q.permalink`, bump `q.updated_at`, write the `question.resolve`
    audit row, all in one transaction.
 
-**Acceptance order for `DELETE /question/{id}` (creator-initiated
+**Acceptance order for `DELETE /api/question/{id}` (creator-initiated
 removal):**
 
 1. If `q.status != 'open'`, return `409 Conflict`.
@@ -732,10 +739,10 @@ removal):**
 
 ### 7.5 View-access ACL for private questions
 
-Every endpoint that surfaces question data (`/list`,
-`GET /question/{id}`, `GET /resolution/{id}`) consults a single
-helper, `auth.can_view_question(user, question) -> bool`, before
-returning a row. The helper's rule is:
+Every endpoint that surfaces question data (`/api/list`,
+`GET /api/question/{id}`, `GET /api/resolution/{id}`) consults a
+single helper, `auth.can_view_question(user, question) -> bool`,
+before returning a row. The helper's rule is:
 
 - If `question.is_private == False`: return `True` for any
   authenticated user.
@@ -755,9 +762,9 @@ Handlers that observe `can_view_question(...) == False` return
 `question_id` exists. `404` makes private questions indistinguishable
 from never-existed questions for unauthorized viewers.
 
-`/list` applies the same helper as a `WHERE` predicate, so private
-questions the caller cannot view are silently filtered out of the
-returned `pending` array. The same goes for `GET /resolution/{id}`:
+`/api/list` applies the same helper as a `WHERE` predicate, so
+private questions the caller cannot view are silently filtered out of
+the returned `pending` array. The same goes for `GET /api/resolution/{id}`:
 the 404 case covers both "no such id" and "id exists but ACL denies".
 
 ## 8. Pydantic Schemas
@@ -773,7 +780,7 @@ the 404 case covers both "no such id" and "id exists but ACL denies".
   `UNIQUE` constraint in section 7.1) and stable for the lifetime of
   the question. Server-assigned when the question row is created;
   clients MUST NOT supply or pre-allocate a `request_id`. Returned in
-  the `POST /question` response and exposed by every read endpoint so
+  the `POST /api/question` response and exposed by every read endpoint so
   callers can reference the question by its opaque external id without
   having to know its numerical `question_id`.
 - `QuestionID`: a positive integer issued by SQLite's `AUTOINCREMENT`
@@ -854,7 +861,7 @@ against the matching discriminator at submission time.
 ### 8.3 Question schema (`schemas/questions.py`)
 
 A `Question` represents a single pending CAP request. It is presented
-to every voter in the target audience via `/list`, and each voter's
+to every voter in the target audience via `/api/list`, and each voter's
 reply is recorded as a row in the `responses` table. There is a 1:1
 mapping between `request_id` and `question_id`: both are globally
 unique server-assigned identifiers for the same row in the `questions`
@@ -904,7 +911,7 @@ class Question(BaseModel):
 
     permalink: str | None = None  # populated once the question resolves;
                                   # of the form
-                                  # f"{permalink_base}/resolution/{question_id}"
+                                  # f"{permalink_base}/api/resolution/{question_id}"
 
     # Lifecycle. `status` is the persisted state machine; `outcome`
     # is set whenever `status` leaves 'open' (so the two together
@@ -926,7 +933,7 @@ class Question(BaseModel):
 
     # Server-computed at response time. Seconds until `closes_at`,
     # clamped to 0 for already-closed questions. This field is *not*
-    # persisted; it is filled in by the /list handler immediately
+    # persisted; it is filled in by the /api/list handler immediately
     # before serialization so clients do not have to do clock math
     # (and do not have to trust their own clock against the server's).
     time_remaining_seconds: int
@@ -936,9 +943,9 @@ class ListResponse(BaseModel):
     pending: list[Question]
 ```
 
-`ListResponse.pending` is the "array of dictionaries" the `/list`
+`ListResponse.pending` is the "array of dictionaries" the `/api/list`
 endpoint returns; each dictionary is the JSON encoding of a `Question`.
-The `/list` handler stamps `time_remaining_seconds` on every entry
+The `/api/list` handler stamps `time_remaining_seconds` on every entry
 as `max(0, int((q.closes_at - now()).total_seconds()))`, computed
 against the server's clock, so a value of `0` reliably means "voting
 window has closed" and any positive value is a strict upper bound on
@@ -998,7 +1005,7 @@ request creator is responsible for choosing a sensible combination.
 
 ## 9. Endpoint Specifications
 
-### 9.1 `GET /list`
+### 9.1 `GET /api/list`
 
 - **Auth**: required (global hook).
 - **Request**: no parameters in this iteration. The user is identified
@@ -1053,15 +1060,16 @@ Example response:
 }
 ```
 
-All endpoints under `/question/` and `/resolution/` consult the
-view-access ACL from section 7.5 before returning private-question
+All endpoints under `/api/question/` and `/api/resolution/` consult
+the view-access ACL from section 7.5 before returning private-question
 data, and apply the lifecycle/ordering rules from section 7.4 for
 state changes. Question endpoints are mounted under the singular
-prefix `/question/` (matching the pubsub topic layout in section
-10); the `/list` endpoint and the `/api` endpoint keep their own
-top-level paths.
+prefix `/api/question/` (the trailing topic segment `question/` after
+the prefix matches the pubsub topic layout in section 10); the
+`/api/list` endpoint and the `/api/api` endpoint keep their own
+paths under the same `/api/` namespace.
 
-### 9.2 `POST /question`
+### 9.2 `POST /api/question`
 
 Create a new question. All persisted fields originate here.
 
@@ -1086,7 +1094,7 @@ Create a new question. All persisted fields originate here.
 - **Response**: `201 Created`, body is the freshly-created
   `Question` (with the server-issued integer `question_id` and the
   computed `viewer_is_binding`/`time_remaining_seconds` fields).
-  `Location: /question/{question_id}` header is set.
+  `Location: /api/question/{question_id}` header is set.
 - **Side effects**: inserts one row into `questions`; inserts one
   `question.create` row into `audit_log` in the same transaction
   with `actor = current_user.uid`. Both writes succeed or both
@@ -1103,7 +1111,7 @@ Create a new question. All persisted fields originate here.
   on `questions.request_id` still guards against bugs in the
   allocator and would surface as `409 Conflict` if it ever fired.
 
-### 9.3 `GET /question/{question_id}`
+### 9.3 `GET /api/question/{question_id}`
 
 Fetch a single question and all of its recorded responses in one
 shot.
@@ -1137,12 +1145,12 @@ shot.
   `created_at` ascending, so consumers can reconstruct the full
   history and observe veto withdrawals. `question.viewer_is_binding`
   and `question.time_remaining_seconds` are computed against the
-  caller's session at response time, as in `/list`.
+  caller's session at response time, as in `/api/list`.
 - **Errors**: `404` if no such question exists, the question's
   `status` is `removed` (visible only via `/admin/` to root users),
   or the caller's ACL check fails.
 
-### 9.4 `PATCH /question/{question_id}`
+### 9.4 `PATCH /api/question/{question_id}`
 
 Edit an open question's metadata.
 
@@ -1167,7 +1175,7 @@ Edit an open question's metadata.
   request body matches the current state) skip both the audit row
   and the email and return `200` with the unchanged `Question`.
 
-### 9.5 `DELETE /question/{question_id}`
+### 9.5 `DELETE /api/question/{question_id}`
 
 Withdraw an open question. This is a logical delete, not a row
 deletion: the row stays in `questions` and `status` flips to
@@ -1184,7 +1192,7 @@ deletion: the row stays in `questions` and `status` flips to
   Same transaction. After commit, an email notification is sent
   per section 11 (`event = "closed"`).
 
-### 9.6 `POST /question/{question_id}/resolve`
+### 9.6 `POST /api/question/{question_id}/resolve`
 
 Finalize a question, computing the tally and issuing a permalink.
 
@@ -1195,7 +1203,7 @@ Finalize a question, computing the tally and issuing a permalink.
 - **Response**: `200 OK`, body is the resolved `Question` with
   `status = 'resolved'`, `outcome` populated (one of `approved`,
   `vetoed`, `insufficient_votes`), and `permalink` populated as
-  `f"{permalink_base}/resolution/{question_id}"`.
+  `f"{permalink_base}/api/resolution/{question_id}"`.
 - **Side effects**: server applies the lifecycle order from section
   7.4: it first freezes new responses (the deadline check is
   already in force if `closes_at` has passed), runs the tally per
@@ -1243,7 +1251,7 @@ consensus).
 restricted to root (`session.isRoot`); the original requester
 receives `403 deadline_in_future` until the deadline elapses.
 
-### 9.7 `POST /question/{question_id}/responses`
+### 9.7 `POST /api/question/{question_id}/responses`
 
 Submit a new response, or amend the caller's previous response.
 
@@ -1300,7 +1308,7 @@ shape check. The `400` body distinguishes the failure mode via
 `text_too_long`, `missing_veto_comment`) so the UI can surface a
 specific message.
 
-### 9.8 `GET /resolution/{question_id}`
+### 9.8 `GET /api/resolution/{question_id}`
 
 The permalink endpoint. This is the URL stored in
 `question.permalink` once a question resolves, and the canonical
@@ -1311,7 +1319,7 @@ way for external parties to verify the outcome of a CAP question.
 - **Path param**: `question_id` is an integer.
 - **ACL**: subject to `auth.can_view_question(...)` (section 7.5).
   ACL denial collapses into `404 Not Found`, exactly like
-  `GET /question/{question_id}`.
+  `GET /api/question/{question_id}`.
 - **Status codes**:
   - **`200 OK`** — the question resolved with
     `outcome == 'approved'`. Body is a `ResolutionRecord`:
@@ -1357,19 +1365,19 @@ way for external parties to verify the outcome of a CAP question.
   `Cache-Control: public, max-age=86400, immutable`. `204` and
   `404` are served with `Cache-Control: no-store`.
 
-### 9.9 `GET /api`
+### 9.9 `GET /api/api`
 
-- **Auth**: **public** (no login required). `/api` is the single
-  exception to the global authentication hook, so external integrators
+- **Auth**: **public** (no login required). `/api/api` is one of the
+  exceptions to the global authentication hook, so external integrators
   and tooling can discover the API surface without an ASF account. The
   global `before_request` hook in `cap_backend/auth.py` allowlists this
-  exact path alongside `/oauth`.
+  exact path alongside `/api/auth` and `/api/docs`.
 - **Request**: no parameters.
 - **Response**: `200 OK`, `Content-Type: application/json`. The body is
   an OpenAPI 3.x document describing the entire HTTP API of the service,
   including request and response schemas for every other endpoint. The
   document also declares the OAuth security scheme that applies to
-  every other endpoint, so `/api` is self-describing about which
+  every other endpoint, so `/api/api` is self-describing about which
   endpoints require login.
 - **Generation**: the document is assembled at startup (cached) from the
   Pydantic models registered with `quart-schema`. The endpoint itself
@@ -1381,39 +1389,39 @@ way for external parties to verify the outcome of a CAP question.
 - **Caching**: the response carries `Cache-Control: public, max-age=300`
   since the document only changes when the service is redeployed.
 
-`/api` itself is included in the document it returns.
+`/api/api` itself is included in the document it returns.
 
-### 9.10 `GET /docs`
+### 9.10 `GET /api/docs`
 
-- **Auth**: **public** (no login required). `/docs` is exempt from the
-  global authentication hook for the same reason `/api` is: external
-  integrators must be able to browse the API surface without an ASF
-  account. The path is added to the allowlist in
-  `cap_backend/auth.PUBLIC_PATHS` alongside `/api`.
+- **Auth**: **public** (no login required). `/api/docs` is exempt from
+  the global authentication hook for the same reason `/api/api` is:
+  external integrators must be able to browse the API surface without
+  an ASF account. The path is added to the allowlist in
+  `cap_backend/auth.PUBLIC_PATHS` alongside `/api/api`.
 - **Request**: no parameters.
 - **Response**: `200 OK`, `Content-Type: text/html; charset=utf-8`.
   The body is a small, self-contained HTML document that loads
   [Swagger UI](https://swagger.io/tools/swagger-ui/) from a public CDN
   (`cdn.jsdelivr.net/npm/swagger-ui-dist`, pinned to a specific
   major.minor.patch in `cap_backend/openapi.py`) and points it at
-  `/api` for the OpenAPI document. There are no server-side schemas
-  embedded in the page; rebuilds of the OpenAPI document at `/api`
+  `/api/api` for the OpenAPI document. There are no server-side schemas
+  embedded in the page; rebuilds of the OpenAPI document at `/api/api`
   are reflected automatically the next time the page is loaded (or
-  the next time `/api` is re-fetched from cache, whichever comes
+  the next time `/api/api` is re-fetched from cache, whichever comes
   first).
 - **Generation**: the HTML body is a constant string assembled at
   import time. There is no per-request rendering and no template
   engine; the only dynamic input is the pinned swagger-ui version,
   which is a module-level constant.
 - **Caching**: the response carries `Cache-Control: public, max-age=300`
-  for parity with `/api`. Because the body never changes between
+  for parity with `/api/api`. Because the body never changes between
   service restarts (it is a static HTML literal), this is purely a
   network-traffic optimization.
 - **Security note**: the page is served at a *public* URL but the
   underlying API is not — every endpoint listed in the rendered
   spec still requires the OAuth login declared in the document's
   `security` block. "Try it out" calls from inside Swagger UI will
-  receive a `401` JSON response (or a redirect to `/auth` for
+  receive a `401` JSON response (or a redirect to `/api/auth` for
   text/html callers) until the caller has logged in through the
   same browser session.
 
@@ -1452,14 +1460,14 @@ in this iteration. The convention this section establishes is:
    endpoint, with their root-requirement reflected in the
    `security` block so external tooling can see they are restricted.
 
-### 9.12 `POST /token`
+### 9.12 `GET /api/token`
 
 Issue a personal-access bearer token for the currently authenticated
 user. The token is the credential used by the `Authorization: bearer
 <token>` header described in section 6.4.
 
 - **Auth**: required. The caller must be authenticated via the OAuth
-  gateway (`/auth`). Token-authenticated sessions are explicitly
+  gateway (`/api/auth`). Token-authenticated sessions are explicitly
   refused: a token cannot be used to issue further tokens.
 - **Scope**: this endpoint is not gated by an entry in the section 6.3
   scope table because it predates any token's existence. Token-based
@@ -1558,7 +1566,7 @@ bodies). The body always contains:
 - `action` — the action type, e.g. `"created"` (mirrors the
   type segment so subscribers don't have to parse the URL).
 - `question` — a serialized `Question` model (the same shape
-  `/list` returns) for the question the event is about.
+  `/api/list` returns) for the question the event is about.
 - `actor` — the ASF UID of the user who performed the action.
 - `occurred_at` — ISO-8601 UTC timestamp of the audit row.
 - `audit_id` — the `audit_log.audit_id` of the row that produced
@@ -1728,7 +1736,7 @@ down.
 ## 12. Logging and Observability
 
 - All requests are logged at INFO with method, path, status, latency,
-  and the ASF UID (or `-` for unauthenticated `/auth` traffic).
+  and the ASF UID (or `-` for unauthenticated `/api/auth` traffic).
 - Authentication failures (the global hook returning 401) are logged
   at WARNING with the requested path.
 - The pubsub publisher (section 10) logs each POST at DEBUG with the
@@ -1773,31 +1781,31 @@ Coverage by area:
   model is exercised with a small set of fixture JSON payloads;
   the response discriminator is checked for each `kind`; the
   `ASFUserID` regex is verified.
-- **`/api`** (`test_api_endpoints.py`): asserts the response is
+- **`/api/api`** (`test_api_endpoints.py`): asserts the response is
   reachable without authentication, has `openapi: "3.x.y"`, lists
-  `/list`, `/api`, and the management endpoints in `paths`,
+  `/api/list`, `/api/api`, and the management endpoints in `paths`,
   populates `components.schemas` with `Question`, `VoteOption`,
   `LazyConsensusOption`, `FreeTextOption`, and references
-  `ListResponse` / `AuthenticationRequired` from `/list`'s
+  `ListResponse` / `AuthenticationRequired` from `/api/list`'s
   responses.
-- **`/list`** (`test_api_endpoints.py`): tested unauthenticated
+- **`/api/list`** (`test_api_endpoints.py`): tested unauthenticated
   with `Accept: application/json` (expect 401 JSON) and with
-  `Accept: text/html` (expect 30x redirect to `/auth`), then
+  `Accept: text/html` (expect 30x redirect to `/api/auth`), then
   authenticated against seeded fixtures (expect `ListResponse`
   with a positive `time_remaining_seconds`, viewer-binding flag
   set when the user is on the project's committee, private
   questions filtered, resolved/removed questions omitted).
 - **Question management** (`test_question_management.py`):
-  end-to-end tests for `POST /question`,
-  `GET /question/{id}`, `PATCH /question/{id}`,
-  `DELETE /question/{id}`, and `POST /question/{id}/resolve`.
+  end-to-end tests for `POST /api/question`,
+  `GET /api/question/{id}`, `PATCH /api/question/{id}`,
+  `DELETE /api/question/{id}`, and `POST /api/question/{id}/resolve`.
   Each test asserts the HTTP response, the audit-log row written,
   and the email captured by `captured_emails` (recipient, sender,
   subject prefix, threading). Authorization branches covered:
   non-committee 403, non-requester 403, root override, early-
   resolve restriction.
 - **Response submission** (`test_responses.py`): end-to-end tests
-  for `POST /question/{id}/responses` covering the happy path for
+  for `POST /api/question/{id}/responses` covering the happy path for
   each `kind` (vote, lazy_consensus, free_text), the veto rules
   (binding -1 without comment rejected as `400`, with comment
   recorded as `is_veto=1`, non-binding -1 recorded but never veto),
@@ -1843,7 +1851,7 @@ Coverage by area:
   by `audit_id` is preserved, that private events without
   credentials are skipped with a `WARNING` while the cursor
   still advances, and that the publisher consumes audit rows
-  produced by `POST /question` through the real HTTP route.
+  produced by `POST /api/question` through the real HTTP route.
 
 ## 14. Open Questions
 
@@ -1867,7 +1875,7 @@ trail without re-reading the whole document.
    Each handler writes its audit row inside the SQLite transaction
    that performs the state change, and dispatches an email
    notification per section 11 after the transaction commits.
-6. **Response submission** (`POST /question/{id}/responses`,
+6. **Response submission** (`POST /api/question/{id}/responses`,
    section 9.7) is implemented. The handler enforces the §7.4
    acceptance order (deadline check first, then status), computes
    `is_binding` and `is_veto` as snapshots at submission time
@@ -1902,8 +1910,8 @@ trail without re-reading the whole document.
    logged and swallowed so a misconfigured MSA cannot roll back a
    committed state change.
 9. **Permalink format** is
-   `f"{permalink_base}/resolution/{question_id}"` (section 9.6),
-   served by `GET /resolution/{question_id}` (section 9.8). The
+   `f"{permalink_base}/api/resolution/{question_id}"` (section 9.6),
+   served by `GET /api/resolution/{question_id}` (section 9.8). The
    permalink uses the question's numerical id directly and
    distinguishes approved (`200`), terminal-but-not-approved
    (`424`), pending (`204`), and absent-or-unauthorized (`404`)
@@ -1920,6 +1928,19 @@ trail without re-reading the whole document.
     `cap_backend/tally.py` and specified in section 9.6 (latest
     response per voter; per-`approval_type` rules; tally summary
     persisted to `audit_log.resolve.details_json`).
+15. **All backend routes live under the `/api/` prefix**: the
+    OpenAPI document is mounted at `/api/api`, Swagger UI at
+    `/api/docs`, the asfquart OAuth gateway at `/api/auth` (passed in
+    as `oauth="/api/auth"` to `asfquart.construct`), and every
+    questions/responses/token endpoint under `/api/question/...`,
+    `/api/list`, and `/api/token`. The questions and tokens blueprints
+    are registered with `url_prefix="/api"` so the route declarations
+    inside the blueprint files remain unprefixed; the openapi
+    blueprint already spells out the full `/api/api` and `/api/docs`
+    paths because it has no `url_prefix`. `PUBLIC_PATHS` in
+    `cap_backend/auth.py` is `{"/api/api", "/api/docs"}` and
+    `OAUTH_PATH_PREFIX` is `"/api/auth"`.
+
 13. **Bearer-token authentication** is wired through
     `asfquart.APP.token_handler` (sections 6.4 and 9.12). The handler
     resolves tokens against an in-memory `TokenStore` whose invariants
@@ -1937,11 +1958,11 @@ trail without re-reading the whole document.
 
 Items deferred to a future iteration (not blocking this cut):
 
-- **`GET /resolution/{question_id}`** (section 9.8) — the permalink
-  endpoint is specified but not yet implemented; the permalink
-  string is already written into the `questions.permalink` column
-  at resolve time.
-- **Pagination on `GET /question/{question_id}`** is unbounded in
+- **`GET /api/resolution/{question_id}`** (section 9.8) — the
+  permalink endpoint is specified but not yet implemented; the
+  permalink string is already written into the `questions.permalink`
+  column at resolve time.
+- **Pagination on `GET /api/question/{question_id}`** is unbounded in
   this spec (all responses returned). If a single question
   accumulates thousands of responses, paginating the `responses`
   array will be needed; the shape (cursor vs. offset, default
