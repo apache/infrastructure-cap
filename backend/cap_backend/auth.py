@@ -27,16 +27,32 @@ class AuthenticatedUser:
     committees: tuple[str, ...] = ()
     is_root: bool = False
     fullname: str | None = None
+    # ``scopes`` is ``None`` for full OAuth sessions (which carry every
+    # scope implicitly) and a frozenset of scope names for bearer-token
+    # sessions (which are limited to the scopes declared at issuance).
+    # See SPEC §6.3 / §6.4.
+    scopes: frozenset[str] | None = None
+    is_token_session: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_session(cls, session: Any) -> AuthenticatedUser:
         committees = tuple(getattr(session, "committees", None) or [])
+        metadata = getattr(session, "metadata", None)
+        scope_list: list[str] | None = None
+        if isinstance(metadata, dict):
+            raw_scope = metadata.get("scope")
+            if isinstance(raw_scope, (list, tuple, set, frozenset)):
+                scope_list = [str(s) for s in raw_scope]
+        scopes = frozenset(scope_list) if scope_list is not None else None
+        is_token_session = scopes is not None or bool(getattr(session, "roleaccount", False))
         return cls(
             uid=session.uid,
             committees=committees,
             is_root=bool(getattr(session, "isRoot", False)),
             fullname=getattr(session, "fullname", None),
+            scopes=scopes,
+            is_token_session=is_token_session,
         )
 
 
@@ -116,6 +132,30 @@ async def current_user() -> AuthenticatedUser | None:
     if session is None or not getattr(session, "uid", None):
         return None
     return AuthenticatedUser.from_session(session)
+
+
+# Scope names known to the API. ``public`` is the implicit catch-all that
+# any authenticated caller may use; ``ask`` and ``answer`` correspond to
+# the question-management and response-submission endpoint groups
+# (SPEC §6.3).
+PUBLIC_SCOPE = "public"
+ASK_SCOPE = "ask"
+ANSWER_SCOPE = "answer"
+
+
+def user_has_scope(user: AuthenticatedUser, scope: str) -> bool:
+    """Return True if ``user`` is allowed to call an endpoint requiring ``scope``.
+
+    OAuth sessions (``user.scopes is None``) always pass. Bearer-token
+    sessions pass iff ``scope`` is ``public`` (every authenticated caller
+    has implicit public-scope access) or the scope appears in their
+    issued scope list.
+    """
+    if user.scopes is None:
+        return True
+    if scope == PUBLIC_SCOPE:
+        return True
+    return scope in user.scopes
 
 
 def can_view_question(user: AuthenticatedUser, question: Question | Any) -> bool:

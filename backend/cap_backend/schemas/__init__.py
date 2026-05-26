@@ -21,6 +21,7 @@ from cap_backend.schemas.responses import (
     VoteOption,
     VoteResponse,
 )
+from cap_backend.schemas.tokens import TokenIssued
 
 __all__ = [
     "ASFUserID",
@@ -44,4 +45,5 @@ __all__ = [
     "SubmittedResponse",
     "AuthenticationRequired",
     "ErrorMessage",
+    "TokenIssued",
 ]

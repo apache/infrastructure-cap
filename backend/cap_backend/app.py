@@ -88,7 +88,10 @@ def _construct_app(name: str, settings: Settings) -> Any:
     try:
         import asfquart  # noqa: PLC0415
 
-        return asfquart.construct(name, oauth="/auth")
+        return asfquart.construct(
+            name,
+            oauth="/auth",
+        )
     except Exception:  # noqa: BLE001 - any failure in asfquart construction
         # In a constrained environment (e.g. unit tests without an asfquart
         # token file on disk) fall back to a plain Quart app so tests can
@@ -124,15 +127,27 @@ def build_app(settings: Settings | None = None) -> Any:
     from cap_backend.openapi import openapi_bp  # noqa: PLC0415
     from cap_backend.pubsub import PubsubPublisher  # noqa: PLC0415
     from cap_backend.routes.questions import questions_bp  # noqa: PLC0415
+    from cap_backend.routes.tokens import tokens_bp  # noqa: PLC0415
+    from cap_backend.tokens import TokenStore, build_token_handler  # noqa: PLC0415
 
     database = Database(db_path)
     app.extensions["cap_db"] = database
     app.extensions["cap_settings"] = settings
 
+    # In-memory personal access token store. Tokens do not survive a restart
+    # and are not shared between worker processes; see SPEC §6.4.
+    token_store = TokenStore()
+    app.extensions["cap_tokens"] = token_store
+    # Wire the bearer-token handler into asfquart so that
+    # ``Authorization: bearer <token>`` requests resolve to a session
+    # whose ``metadata.scope`` carries the issued scope list.
+    app.token_handler = build_token_handler(token_store)
+
     _init_quart_schema(app)
 
     app.register_blueprint(openapi_bp)
     app.register_blueprint(questions_bp)
+    app.register_blueprint(tokens_bp)
 
     app.before_request(require_authentication)
 

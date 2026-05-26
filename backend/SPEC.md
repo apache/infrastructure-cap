@@ -34,6 +34,9 @@ covers:
      and issue its permalink.
    - `POST /question/{id}/responses` — submit a new response, or amend
      the caller's previous response.
+   - `POST /token` — issue a personal-access bearer token for the
+     currently authenticated user (scoped to `ask`, expiring after 24
+     hours, capped at five live tokens per ASF UID).
 4. Recording every state-changing action in an append-only audit log
    inside the same SQLite transaction that performed the write
    (section 7.3).
@@ -105,16 +108,21 @@ backend/
     │                           # pypubsub instance (section 10)
     ├── openapi.py              # /api endpoint (OpenAPI document) and
     │                           # /docs endpoint (Swagger UI HTML)
+    ├── tokens.py               # in-memory bearer-token (PAT) store
+    │                           # and asfquart token_handler factory
+    │                           # (sections 6.4 and 9.12)
     ├── routes/
     │   ├── __init__.py
-    │   └── questions.py        # all `/list`, `/question/*`,
-    │                           # `/question/<id>/resolve` and
-    │                           # `/question/<id>/responses` handlers
+    │   ├── questions.py        # all `/list`, `/question/*`,
+    │   │                       # `/question/<id>/resolve` and
+    │   │                       # `/question/<id>/responses` handlers
+    │   └── tokens.py           # `POST /token` (issue PAT, section 9.12)
     ├── schemas/
     │   ├── __init__.py
     │   ├── common.py           # shared primitives (ASF UID, timestamps)
     │   ├── errors.py           # `AuthenticationRequired`, `ErrorMessage`
     │   ├── responses.py        # response-option schemas (dynamic)
+    │   ├── tokens.py           # `TokenIssued` body for POST /token
     │   └── questions.py        # Question, ListResponse, QuestionDetail,
     │                           # CreateQuestionRequest, EditQuestionRequest,
     │                           # ResolutionRecord
@@ -317,6 +325,89 @@ so external integrators can introspect the API without going through
 the OAuth flow. The document itself declares the OAuth security
 requirement on every other endpoint, so it is self-describing about
 which routes need login.
+
+### 6.3 Endpoint scopes
+
+Every route declared in this iteration is tagged with a **scope** that
+controls which bearer tokens (section 6.4) may call it. OAuth-logged-in
+sessions carry every scope implicitly; bearer-token sessions only carry
+the scopes that were granted when the token was issued. The scope-check
+helper lives in `cap_backend/auth.user_has_scope(user, scope)`:
+
+- If `user.scopes is None` (OAuth session), the helper returns `True`.
+- Otherwise it returns `True` iff `scope == "public"` (every
+  authenticated caller has implicit public-scope access) or the literal
+  scope name is contained in `user.scopes`.
+
+Endpoints that fail the scope check return `403 Forbidden` with body
+`{"error": "insufficient_scope", "required_scope": "<scope>"}`. The
+scope assignment for the existing routes is:
+
+| Scope     | Endpoints                                                                                                |
+|-----------|----------------------------------------------------------------------------------------------------------|
+| `ask`     | `POST /question`, `PATCH /question/{id}`, `DELETE /question/{id}`, `POST /question/{id}/resolve`         |
+| `answer`  | `POST /question/{id}/responses`                                                                          |
+| `public`  | `GET /list`, `GET /question/{id}`, `GET /resolution/{id}`                                                |
+
+`/api`, `/docs`, and `/auth` are unauthenticated and therefore not
+governed by a scope. `POST /token` is itself scope-less (it requires an
+OAuth session and explicitly refuses token sessions; see section 9.12).
+Scopes assigned here apply to the *currently specified* endpoints only:
+new routes added in later iterations will declare their own scope and
+this table will be expanded alongside them.
+
+### 6.4 Bearer-token (personal access token) auth
+
+In addition to OAuth-based browser sessions, the service accepts
+bearer tokens for role accounts and personal access tokens (PATs) via
+asfquart's `APP.token_handler` extension point. `cap_backend/app.py`
+wires a token handler that resolves a bearer token against an in-memory
+`TokenStore`:
+
+```python
+# cap_backend/tokens.py
+TOKEN_TTL = timedelta(hours=24)
+MAX_TOKENS_PER_UID = 5
+TOKEN_SCOPES: tuple[str, ...] = ("ask",)
+```
+
+The handler returns a session dictionary matching the asfquart contract
+(`uid`, `committees`, `metadata.scope`, `isRoot`, `roleaccount`) so a
+caller may authenticate by sending:
+
+```
+Authorization: bearer <token>
+```
+
+against any endpoint. The store is process-local: tokens **do not
+survive a restart** and are not shared between worker processes. This
+is deliberate (PATs are intended to be cheap to re-issue and short
+lived); operators who need durable role-account credentials should
+instead configure a static, on-disk token outside the scope of this
+endpoint.
+
+Token-store invariants:
+
+- Each issued token carries an opaque random string (≥ 32 bytes via
+  `secrets.token_urlsafe(32)`), a creation timestamp, an expiry of
+  exactly `created_at + 24h`, and the literal scope list `["ask"]`.
+- A single ASF UID may hold at most five live tokens. Issuing a sixth
+  token evicts the oldest one (FIFO by issuance order), so the cap is
+  always enforced as a hard upper bound.
+- Lookups eagerly purge expired tokens before returning, so a token
+  whose `expires_at` has elapsed is treated as unknown.
+- The handler returns `metadata.scope = ["ask"]` on every successful
+  lookup. The `AuthenticatedUser.from_session(...)` projection
+  populates `scopes = frozenset({"ask"})` and `is_token_session = True`
+  so downstream code (the scope helper, the `/token` endpoint) can
+  distinguish PAT-authenticated requests from OAuth ones.
+
+The `AuthenticatedUser` dataclass therefore carries two new fields:
+
+| field              | type                       | meaning                                  |
+|--------------------|----------------------------|------------------------------------------|
+| `scopes`           | `frozenset[str] \| None`   | `None` for OAuth, scope set for PATs     |
+| `is_token_session` | `bool`                     | `True` when the session came from a PAT  |
 
 ## 7. Persistence (SQLite)
 
@@ -1361,6 +1452,55 @@ in this iteration. The convention this section establishes is:
    endpoint, with their root-requirement reflected in the
    `security` block so external tooling can see they are restricted.
 
+### 9.12 `POST /token`
+
+Issue a personal-access bearer token for the currently authenticated
+user. The token is the credential used by the `Authorization: bearer
+<token>` header described in section 6.4.
+
+- **Auth**: required. The caller must be authenticated via the OAuth
+  gateway (`/auth`). Token-authenticated sessions are explicitly
+  refused: a token cannot be used to issue further tokens.
+- **Scope**: this endpoint is not gated by an entry in the section 6.3
+  scope table because it predates any token's existence. Token-based
+  callers receive `403 token_session_cannot_issue` regardless of the
+  scopes they carry.
+- **Request body**: empty.
+- **Response**: `201 Created`, body is a `TokenIssued`:
+
+  ```python
+  class TokenIssued(BaseModel):
+      token: str
+      uid: ASFUserID
+      scopes: list[str]        # always exactly ["ask"]
+      created_at: IsoTimestamp
+      expires_at: IsoTimestamp  # created_at + 24h
+  ```
+
+  The `token` value is shown **exactly once**: the server does not
+  persist plaintext tokens to disk, and the in-memory store cannot be
+  queried for them. A caller who loses their token must issue a new
+  one (subject to the per-uid cap below).
+
+- **Side effects**: the new token is appended to the in-memory
+  `TokenStore` for the user's UID. If the user already holds five
+  live tokens, the oldest one is evicted before the new token is
+  inserted so the cap (`MAX_TOKENS_PER_UID = 5`) is preserved.
+  Expired tokens are purged opportunistically on every issue and on
+  every lookup.
+
+- **Errors**:
+  - `401 Unauthorized` — not logged in (handled by the global hook).
+  - `403 token_session_cannot_issue` — the caller is themselves
+    authenticated by a bearer token, not the OAuth gateway.
+
+- **Scope of issued tokens**: every token created by this endpoint
+  carries scope `["ask"]` (and only `"ask"`), per the constraint in
+  section 6.4. Token holders may therefore create/edit/close/resolve
+  questions and call any public-scope endpoint, but they cannot
+  submit responses (which require the `answer` scope) and they
+  cannot issue further tokens.
+
 ## 10. Pubsub Publishing
 
 State-changing actions are republished to a [pypubsub] instance so
@@ -1780,6 +1920,20 @@ trail without re-reading the whole document.
     `cap_backend/tally.py` and specified in section 9.6 (latest
     response per voter; per-`approval_type` rules; tally summary
     persisted to `audit_log.resolve.details_json`).
+13. **Bearer-token authentication** is wired through
+    `asfquart.APP.token_handler` (sections 6.4 and 9.12). The handler
+    resolves tokens against an in-memory `TokenStore` whose invariants
+    (at most five live tokens per UID, 24-hour TTL, fixed `["ask"]`
+    scope, evict-oldest on overflow) are codified in
+    `cap_backend/tokens.py`. The store is process-local; tokens never
+    touch durable storage.
+14. **Endpoint scopes** (section 6.3) classify the current routes as
+    `ask` (question CUD + resolve), `answer` (response submission), or
+    `public` (everything else specified in this iteration). OAuth
+    sessions hold every scope implicitly; bearer-token sessions only
+    hold the scopes their issued metadata carries. The check lives in
+    `auth.user_has_scope` and is invoked inline by each route after
+    the `current_user()` step.
 
 Items deferred to a future iteration (not blocking this cut):
 

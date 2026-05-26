@@ -11,7 +11,15 @@ from quart import Blueprint, Response, current_app, jsonify, request
 from quart_schema import document_response, validate_request, validate_response
 
 from cap_backend import audit, dao, notify, tally
-from cap_backend.auth import AuthenticatedUser, can_view_question, current_user
+from cap_backend.auth import (
+    ANSWER_SCOPE,
+    ASK_SCOPE,
+    PUBLIC_SCOPE,
+    AuthenticatedUser,
+    can_view_question,
+    current_user,
+    user_has_scope,
+)
 from cap_backend.schemas.errors import AuthenticationRequired, ErrorMessage
 from cap_backend.schemas.questions import (
     CreateQuestionRequest,
@@ -37,6 +45,14 @@ async def _unauthenticated_response() -> tuple[Any, int]:
     )
 
 
+def _insufficient_scope(required: str) -> tuple[Any, int]:
+    """Body returned when a token session lacks the scope an endpoint requires."""
+    return (
+        jsonify({"error": "insufficient_scope", "required_scope": required}),
+        403,
+    )
+
+
 def _settings():
     return current_app.extensions["cap_settings"]
 
@@ -59,10 +75,13 @@ def _notify(event: str, question: Question, *, actor: str, body: str) -> None:
 @questions_bp.get("/list")
 @validate_response(ListResponse, 200)
 @document_response(AuthenticationRequired, 401)
+@document_response(ErrorMessage, 403)
 async def list_pending() -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, PUBLIC_SCOPE) and not user_has_scope(user, ASK_SCOPE):
+        return _insufficient_scope(PUBLIC_SCOPE)
 
     db = current_app.extensions["cap_db"]
     rows = db.conn.execute(
@@ -101,6 +120,8 @@ async def create_question(data: CreateQuestionRequest) -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, ASK_SCOPE):
+        return _insufficient_scope(ASK_SCOPE)
 
     if data.project_id not in user.committees and not user.is_root:
         return jsonify({"error": "not_committee_member"}), 403
@@ -174,6 +195,8 @@ async def get_question(question_id: int) -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, PUBLIC_SCOPE):
+        return _insufficient_scope(PUBLIC_SCOPE)
 
     db = current_app.extensions["cap_db"]
     row = dao.fetch_question_row(db.conn, question_id)
@@ -205,6 +228,8 @@ async def edit_question(data: EditQuestionRequest, question_id: int) -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, ASK_SCOPE):
+        return _insufficient_scope(ASK_SCOPE)
 
     db = current_app.extensions["cap_db"]
     row = dao.fetch_question_row(db.conn, question_id)
@@ -276,6 +301,8 @@ async def remove_question(question_id: int) -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, ASK_SCOPE):
+        return _insufficient_scope(ASK_SCOPE)
 
     db = current_app.extensions["cap_db"]
     row = dao.fetch_question_row(db.conn, question_id)
@@ -332,6 +359,8 @@ async def resolve_question(question_id: int) -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, ASK_SCOPE):
+        return _insufficient_scope(ASK_SCOPE)
 
     db = current_app.extensions["cap_db"]
     row = dao.fetch_question_row(db.conn, question_id)
@@ -454,6 +483,8 @@ async def submit_response(question_id: int) -> Any:
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
+    if not user_has_scope(user, ANSWER_SCOPE):
+        return _insufficient_scope(ANSWER_SCOPE)
 
     raw = await request.get_json(silent=True)
     if not isinstance(raw, dict):
