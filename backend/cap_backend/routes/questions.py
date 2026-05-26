@@ -185,16 +185,9 @@ def _compute_publist(now: datetime) -> PublicListResponse:
 async def public_list() -> Any:
     """Public read-only feed of non-private CAP questions.
 
-    Returns every question with ``is_private = 0`` whose ``status`` is
+    Returns every public question with whose ``status`` is
     still ``open`` *or* whose ``updated_at`` falls within the last 14
-    days. No authentication is required (the path is allowlisted in
-    ``auth.PUBLIC_PATHS``).
-
-    The body is cached in process memory for at most
-    ``settings.server.publist_cache_seconds`` seconds. A value of ``0``
-    disables the cache so every request recomputes the response (SPEC
-    §9.13). The ``Cache-Control`` header advertises the same TTL so
-    intermediate caches can mirror the policy.
+    days. No authentication is required.
     """
     ttl = _settings().server.publist_cache_seconds
     cache: dict[str, Any] = current_app.extensions.setdefault(_PUBLIST_CACHE_KEY, {})
