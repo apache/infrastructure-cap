@@ -87,7 +87,6 @@
     try {
       if (mode === "create") {
         const body: CreateQuestionRequest = {
-          request_id: requestId || `req_${ulid()}`,
           project_id: projectId,
           title: title.trim(),
           description: description.trim(),
