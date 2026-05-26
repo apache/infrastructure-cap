@@ -16,6 +16,22 @@
 
   let recentResolved: Question[] = [];
 
+  // Privileged viewers (root or members of the `tooling` committee) receive
+  // every question from /list, including those outside their own projects.
+  // The "All projects" switch lets them narrow the view back down to just
+  // their own projects/committees without having to log out. Non-privileged
+  // viewers always see only what the backend has already filtered for them,
+  // so the switch is hidden for them.
+  $: isPrivilegedViewer = user.isRoot || user.committees.includes("tooling");
+  let showAllProjects = false;
+
+  function isOwnProject(q: Question): boolean {
+    return (
+      user.projects.includes(q.project_id) ||
+      user.committees.includes(q.project_id)
+    );
+  }
+
   async function load() {
     loading = true;
     errorMsg = null;
@@ -52,11 +68,26 @@
     );
   }
 
+  // Awaiting tab scope: privileged viewers with the switch OFF see only
+  // questions on their own projects/committees; everyone else sees the full
+  // /list result (the backend has already filtered for non-privileged
+  // viewers).
+  $: inAwaitingScope = (q: Question) =>
+    !isPrivilegedViewer || showAllProjects || isOwnProject(q);
+
+  // Recent tab scope: same idea, but non-privileged viewers are additionally
+  // restricted to their own projects (the dashboard's "Recent activity" tab
+  // is project-local even for users whose /list contains questions targeted
+  // at audiences they happen to be in).
+  $: inRecentScope = (q: Question) =>
+    isPrivilegedViewer && showAllProjects ? true : isOwnProject(q);
+
   // "Awaiting your response": open questions where the viewer is in the
   // audience (we let the backend decide who is in /list) and has not yet
   // responded. We can't tell from /list alone if the viewer responded;
   // fall back to "show all open" as a safe superset.
   $: awaiting = allOpen
+    .filter(inAwaitingScope)
     .filter((q) => matchesFilter(q, filter))
     .sort(
       (a, b) =>
@@ -64,14 +95,10 @@
         a.question_id - b.question_id,
     );
 
-  // "Recent activity": open questions that the user is on the project/committee
-  // of (newest first) plus any resolved/removed entries we have in cache.
+  // "Recent activity": open questions plus any resolved/removed entries we
+  // have in cache. Project-scoped per `inRecentScope`.
   $: recent = [...allOpen, ...recentResolved]
-    .filter(
-      (q) =>
-        user.projects.includes(q.project_id) ||
-        user.committees.includes(q.project_id),
-    )
+    .filter(inRecentScope)
     .filter((q) => matchesFilter(q, filter))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 
@@ -109,6 +136,24 @@
         placeholder="Filter by title or project..."
         bind:value={filter}
       />
+      {#if isPrivilegedViewer}
+        <div
+          class="form-check form-switch mb-0"
+          title="Show questions from every project. When off, only questions on your own projects or committees are shown."
+        >
+          <input
+            class="form-check-input"
+            type="checkbox"
+            role="switch"
+            id="cap-all-projects-switch"
+            bind:checked={showAllProjects}
+          />
+          <label
+            class="form-check-label small text-nowrap"
+            for="cap-all-projects-switch">All projects</label
+          >
+        </div>
+      {/if}
       <button
         type="button"
         class="btn btn-sm btn-outline-secondary"

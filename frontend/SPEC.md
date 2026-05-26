@@ -356,6 +356,7 @@ backend spec:
 | "Mark this question private" checkbox | the selected `project_id` is in `session.committees`                      |
 | "Edit" / "Withdraw" / "Resolve" links | `question.requester === session.uid` or `session.isRoot`, and `status==='open'` |
 | "Respond" form                        | `question.status === 'open'` and `question` is in `/list` (see section 7) |
+| "All projects" dashboard switch       | `session.isRoot === true` or `session.committees.includes("tooling")` (privileged viewers); see section 8.2 |
 
 The frontend never tries to derive view-access for a private
 question by itself; instead it relies on the fact that
@@ -450,6 +451,27 @@ Within each tab:
 
 - A search/filter input at the top filters by title and project
   client-side. Filtering does NOT touch the backend.
+- An **"All projects"** Bootstrap form-switch sits immediately to
+  the right of the filter input. It is rendered **only** for
+  privileged viewers, defined as `session.isRoot === true` or
+  `session.committees.includes("tooling")`; non-privileged viewers
+  never see the switch because the backend has already narrowed
+  `/list` to their audience. The switch controls the project
+  scope of both tabs:
+  - **Off (default).** Both tabs are restricted to questions whose
+    `project_id` is in the viewer's `session.projects` or
+    `session.committees`. This is the same scope a non-privileged
+    viewer would have, so a root or `tooling` member can run the
+    dashboard "as themselves" without being drowned in cross-project
+    traffic.
+  - **On.** No project restriction is applied; the viewer sees
+    every question the backend returned. This matches the
+    pre-switch behavior for root/`tooling` viewers and is what
+    they want when triaging activity across the foundation.
+  The switch's label is intentionally terse ("All projects") and
+  carries an explanatory `title` tooltip. The state is component-
+  local and resets to "off" on every page load; persisting it is
+  out of scope for this iteration.
 - Sorting is newest first by `created_at` for "Recent activity" and
   by ascending `closes_at` for "Awaiting your response" (so the
   soonest-to-close items are at the top).
@@ -966,7 +988,9 @@ Coverage by area:
   submit.
 - **`QuestionList`** (`tests/QuestionList.test.ts`): the two tabs
   partition `/list` correctly; the search input filters
-  client-side without re-fetching.
+  client-side without re-fetching; the "All projects" switch is
+  rendered only for `isRoot` and `tooling` viewers, defaults to
+  off, and toggles the project-scope filter on both tabs.
 - **Contract test** (`tests/contract.test.ts`): fetches
   `GET {API_BASE}/api` against a running backend (in CI) and
   asserts that every field referenced by `src/lib/types.ts` is
