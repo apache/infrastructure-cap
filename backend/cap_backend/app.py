@@ -90,7 +90,7 @@ def _construct_app(name: str, settings: Settings) -> Any:
 
         return asfquart.construct(
             name,
-            oauth="/auth",
+            oauth="/api/auth",
         )
     except Exception:  # noqa: BLE001 - any failure in asfquart construction
         # In a constrained environment (e.g. unit tests without an asfquart
