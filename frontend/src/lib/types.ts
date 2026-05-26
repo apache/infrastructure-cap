@@ -120,7 +120,6 @@ export interface QuestionDetail {
 }
 
 export interface CreateQuestionRequest {
-  request_id: string;
   project_id: string;
   title: string;
   description: string;
