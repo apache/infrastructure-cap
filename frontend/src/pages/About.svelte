@@ -46,7 +46,7 @@
   <!-- Heading + short intro                                              -->
   <!-- ------------------------------------------------------------------ -->
   <h1 class="h3 mt-4 mb-3">
-    <i class="fa-solid fa-feather-pointed me-2 text-primary"></i>
+    <i class="fa-solid fa-leaf me-2 text-primary"></i>
     About the Contingent Approval Platform
   </h1>
 
@@ -267,7 +267,7 @@
             <div class="card h-100 border-primary-subtle">
               <div class="card-body">
                 <h3 class="h6 mb-2">
-                  <i class="fa-solid fa-feather text-primary me-1"></i>
+                  <i class="fa-solid fa-leaf text-primary me-1"></i>
                   Lazy consensus
                 </h3>
                 <p class="small mb-0">

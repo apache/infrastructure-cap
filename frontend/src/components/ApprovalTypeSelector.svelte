@@ -29,7 +29,7 @@
       label: "Lazy consensus",
       description:
         "Silence is assent. The question passes unless someone objects before the deadline.",
-      icon: "fa-solid fa-feather",
+      icon: "fa-solid fa-leaf",
     },
   ];
 </script>

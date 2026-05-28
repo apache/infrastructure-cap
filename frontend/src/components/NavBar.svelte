@@ -13,7 +13,7 @@
 <nav class="navbar navbar-expand-md navbar-dark bg-dark">
   <div class="container">
     <a class="navbar-brand d-flex align-items-center" href="/" use:link>
-      <img src="/feather.svg" alt="" class="feather" />
+      <img src="/oak-leaf.svg" alt="" class="oak-leaf" />
       <span>{config.PRODUCT_NAME}</span>
     </a>
     <button

@@ -57,7 +57,7 @@
                 on:click={dismissWelcome}
         ></button>
         <h2 class="h5 mb-2">
-          <i class="fa-solid fa-feather-pointed me-2 text-primary"></i>
+          <i class="fa-solid fa-leaf me-2 text-primary"></i>
           Welcome to the ASF's Contingent Approval Platform
         </h2>
         <p class="mb-1">
