@@ -65,11 +65,16 @@
           decision-making events from projects at the Apache Software
           Foundation.
         </p>
-        <p class="mb-0 text-muted small">
+        <p class="mb-2 text-muted small">
           The archive of public project decisions is open for the public
           to view, but interacting with the decision-making process is
           limited to committers and committee members of the respective
           projects.
+        </p>
+        <p class="mb-0 small">
+          <a href="/about" use:link>
+            <i class="fa-solid fa-circle-info me-1"></i>Learn more about CAP
+          </a>
         </p>
       </div>
     </div>
