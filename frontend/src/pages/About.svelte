@@ -28,12 +28,16 @@
         a public demonstration of the Contingent Approval Platform (CAP)
         while the service is still under active development and testing.
       </p>
-      <p class="mb-0 small">
+      <p class="mb-1">
         Features on thie site may be missing or incomplete,
         data may be reset without notice, schemas may change,
         and outcomes recorded here are not yet authoritative for any
         ASF project. Treat everything you see as illustrative until
         the service is formally in production.
+      </p>
+      <p class="mb-0 small">
+        While this platform is in demo mode, all email notifications are sent to,
+        and can be viewed at: <a href="https://lists.apache.org/list.html?gnomes@infra.apache.org">gnomes@infra.apache.org</a>
       </p>
     </div>
   </div>
