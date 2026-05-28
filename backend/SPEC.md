@@ -977,8 +977,15 @@ server enforces the rules below at submission and resolution time.
   with a comment is always accepted and recorded.
 
   Non-binding `-1` votes are recorded but cannot veto. The question
-  is approved at the deadline if and only if no veto is in force at
-  that moment (see "Veto withdrawal" below).
+  is **approved** at the deadline if and only if (a) no veto is in
+  force at that moment (see "Veto withdrawal" below) and (b) at
+  least **three** binding voters have cast a `+1` in their latest
+  response. A binding veto in force resolves the question as
+  `vetoed`; absence of a veto with fewer than three binding `+1`
+  votes resolves as `insufficient_votes`. The three-vote floor is
+  the same convention used for ASF release votes and applies
+  uniformly regardless of how many committee members the project
+  has.
 
   **Veto withdrawal.** A veto is not permanent. The voter who cast
   the veto may, at any time before resolution, submit a *new*
@@ -997,7 +1004,13 @@ server enforces the rules below at submission and resolution time.
   non-binding, weighted per the rules of the specific request, with
   binding votes typically the deciding tally). There are no vetoes:
   a `-1` is just a counted vote against, no matter who casts it,
-  and no `comment` is required.
+  and no `comment` is required. The question is **approved** at the
+  deadline if and only if (a) at least **three** binding voters
+  have cast a `+1` in their latest response and (b) the binding
+  `+1` tally strictly exceeds the binding `-1` tally; otherwise the
+  outcome is `insufficient_votes`. The three-vote floor matches
+  the unanimous-approval rule so that both vote types have the
+  same minimum participation bar.
 
 - **`lazy_consensus`** — Silence is assent. The question is
   considered approved at the deadline provided no `-1` (or
@@ -1274,25 +1287,35 @@ veto withdrawals and amended votes always count the most recent
 intent.
 
 - `unanimous_approval`: outcome is `vetoed` if any voter's *latest*
-  response carries `is_veto = 1`; otherwise `approved`. Because
-  `is_veto` is a snapshot taken at submission time (section 7.2),
-  resubmitting a non-veto response withdraws the veto without
-  touching old rows.
+  response carries `is_veto = 1`. Otherwise, the outcome is
+  `approved` iff at least `MIN_BINDING_PLUS_ONE = 3` binding voters
+  have cast a `+1` in their latest response, and
+  `insufficient_votes` if fewer. Because `is_veto` is a snapshot
+  taken at submission time (section 7.2), resubmitting a non-veto
+  response withdraws the veto without touching old rows.
 - `majority_approval`: tally the latest response per voter. The
-  outcome is `approved` iff there is at least one binding `+1`
-  and strictly more binding `+1`s than binding `-1`s; otherwise
-  `insufficient_votes`. Non-binding votes are recorded in the
-  audit-log tally for transparency but do not affect the outcome.
+  outcome is `approved` iff there are at least
+  `MIN_BINDING_PLUS_ONE = 3` binding `+1` votes and strictly more
+  binding `+1`s than binding `-1`s; otherwise `insufficient_votes`.
+  Non-binding votes are recorded in the audit-log tally for
+  transparency but do not affect the outcome.
 - `lazy_consensus`: outcome is `insufficient_votes` if any voter's
   latest response is either a `LazyConsensusResponse` with
   `objection=True` or a `vote` whose `value == "-1"`; otherwise
   `approved` (silence is assent).
 
+The `MIN_BINDING_PLUS_ONE` constant is defined in
+`cap_backend/tally.py` and is currently fixed at `3`. The threshold
+matches the long-standing ASF convention that a vote needs at least
+three positive binding votes to carry; lowering it requires a code
+change and a spec update.
+
 The `details_json` payload written to `audit_log.resolve` always
 includes the keys `approval_type`, `binding_voters`, `all_voters`,
-and an algorithm-specific tally object (`counts` / `binding_counts`
-for majority, `vetoes` for unanimous, `objections` for lazy
-consensus).
+and an algorithm-specific tally object: `counts` / `binding_counts`
+/ `vetoes` / `min_binding_plus_one` for unanimous, `counts` /
+`binding_counts` / `min_binding_plus_one` for majority, and
+`objections` for lazy consensus.
 
 **Early resolution.** Calling resolve before `closes_at` is
 restricted to root (`session.isRoot`); the original requester

@@ -8,6 +8,11 @@ import type {
   LazyConsensusResponse,
 } from "./types";
 
+// Minimum binding +1 votes required for unanimous_approval and
+// majority_approval to resolve as "approved". Mirrors
+// ``MIN_BINDING_PLUS_ONE`` in ``cap_backend/tally.py``.
+export const MIN_BINDING_PLUS_ONE = 3;
+
 function latestPerVoter(responses: StoredResponse[]): StoredResponse[] {
   const byVoter = new Map<string, StoredResponse>();
   for (const r of responses) {
@@ -22,6 +27,8 @@ function latestPerVoter(responses: StoredResponse[]): StoredResponse[] {
 export interface UnanimousPreview {
   kind: "unanimous_approval";
   vetoes: { voter: string; comment: string | null }[];
+  bindingPlus1: number;
+  minBindingPlus1: number;
   approved: boolean;
 }
 
@@ -29,6 +36,7 @@ export interface MajorityPreview {
   kind: "majority_approval";
   binding: { plus1: number; plus0: number; minus0: number; minus1: number };
   nonbinding: { plus1: number; plus0: number; minus0: number; minus1: number };
+  minBindingPlus1: number;
   approved: boolean;
 }
 
@@ -50,10 +58,23 @@ export function previewTally(
     const vetoes = latest
       .filter((r) => r.is_veto)
       .map((r) => ({ voter: r.voter, comment: r.comment ?? null }));
+    let bindingPlus1 = 0;
+    for (const r of latest) {
+      if (
+        r.response.kind === "vote" &&
+        (r.response as VoteResponse).value === "+1" &&
+        r.is_binding
+      ) {
+        bindingPlus1++;
+      }
+    }
     return {
       kind: "unanimous_approval",
       vetoes,
-      approved: vetoes.length === 0,
+      bindingPlus1,
+      minBindingPlus1: MIN_BINDING_PLUS_ONE,
+      approved:
+        vetoes.length === 0 && bindingPlus1 >= MIN_BINDING_PLUS_ONE,
     };
   }
 
@@ -89,7 +110,10 @@ export function previewTally(
       kind: "majority_approval",
       binding,
       nonbinding,
-      approved: binding.plus1 > 0 && binding.plus1 > binding.minus1,
+      minBindingPlus1: MIN_BINDING_PLUS_ONE,
+      approved:
+        binding.plus1 >= MIN_BINDING_PLUS_ONE &&
+        binding.plus1 > binding.minus1,
     };
   }
 

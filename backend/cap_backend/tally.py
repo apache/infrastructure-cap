@@ -16,6 +16,13 @@ from cap_backend.dao import latest_response_per_voter
 
 Outcome = Literal["approved", "vetoed", "insufficient_votes"]
 
+# Minimum number of binding "+1" votes required for a unanimous- or
+# majority-approval question to pass. Below this threshold the outcome is
+# ``insufficient_votes`` regardless of any negative votes. The value matches
+# the long-standing ASF convention that a vote needs at least three positive
+# binding votes to carry.
+MIN_BINDING_PLUS_ONE: int = 3
+
 
 def _vote_payload(row: sqlite3.Row) -> dict[str, Any]:
     return json.loads(row["response_json"])
@@ -45,7 +52,17 @@ def _tally_unanimous(
     binding_voters: list[str],
     all_voters: list[str],
 ) -> tuple[Outcome, dict[str, Any]]:
-    """Approved iff no veto is in force in any voter's latest response."""
+    """Approved iff no veto is in force AND at least ``MIN_BINDING_PLUS_ONE``
+    binding voters have cast a ``+1`` in their latest response.
+
+    Outcome resolution:
+
+    - A binding veto in force: ``vetoed`` (the veto takes precedence over
+      any vote-count consideration, so vetoing voters are not "out-voted").
+    - No veto, but fewer than ``MIN_BINDING_PLUS_ONE`` binding ``+1``
+      votes recorded: ``insufficient_votes``.
+    - Otherwise: ``approved``.
+    """
     active_vetoes = [
         {
             "voter": voter,
@@ -55,14 +72,30 @@ def _tally_unanimous(
         for voter, row in latest.items()
         if row["is_veto"]
     ]
+    counts = {"+1": 0, "+0": 0, "-0": 0, "-1": 0}
+    binding_counts = {"+1": 0, "+0": 0, "-0": 0, "-1": 0}
+    for row in latest.values():
+        if row["response_kind"] != "vote":
+            continue
+        value = _vote_payload(row).get("value")
+        if value in counts:
+            counts[value] += 1
+            if row["is_binding"]:
+                binding_counts[value] += 1
+
     tally: dict[str, Any] = {
         "approval_type": "unanimous_approval",
         "binding_voters": binding_voters,
         "all_voters": all_voters,
         "vetoes": active_vetoes,
+        "counts": counts,
+        "binding_counts": binding_counts,
+        "min_binding_plus_one": MIN_BINDING_PLUS_ONE,
     }
     if active_vetoes:
         return "vetoed", tally
+    if binding_counts["+1"] < MIN_BINDING_PLUS_ONE:
+        return "insufficient_votes", tally
     return "approved", tally
 
 
@@ -74,9 +107,10 @@ def _tally_majority(
     """Majority of binding +1 votes carries the question.
 
     Concretely: among the latest response of each binding voter, count
-    ``value`` occurrences. The question is approved when there is at least
-    one binding +1 and strictly more binding +1s than binding -1s; otherwise
-    the outcome is ``insufficient_votes``.
+    ``value`` occurrences. The question is approved when there are at least
+    ``MIN_BINDING_PLUS_ONE`` binding ``+1`` votes AND strictly more binding
+    ``+1`` votes than binding ``-1`` votes; otherwise the outcome is
+    ``insufficient_votes``.
     """
     counts = {"+1": 0, "+0": 0, "-0": 0, "-1": 0}
     binding_counts = {"+1": 0, "+0": 0, "-0": 0, "-1": 0}
@@ -95,8 +129,12 @@ def _tally_majority(
         "all_voters": all_voters,
         "counts": counts,
         "binding_counts": binding_counts,
+        "min_binding_plus_one": MIN_BINDING_PLUS_ONE,
     }
-    if binding_counts["+1"] > 0 and binding_counts["+1"] > binding_counts["-1"]:
+    if (
+        binding_counts["+1"] >= MIN_BINDING_PLUS_ONE
+        and binding_counts["+1"] > binding_counts["-1"]
+    ):
         return "approved", tally
     return "insufficient_votes", tally
 

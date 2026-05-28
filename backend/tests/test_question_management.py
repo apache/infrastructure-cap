@@ -329,6 +329,7 @@ async def test_resolve_question_after_deadline_marks_outcome(
     )
     seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
     seed_response(app, question_id=qid, voter="erin", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="frank", value="+1", is_binding=True)
 
     client = app.test_client()
     response = await client.post(f"/api/question/{qid}/resolve")
@@ -443,10 +444,52 @@ async def test_resolve_unanimous_with_withdrawn_veto(
         is_veto=False,
         created_at=later,
     )
+    # Two additional binding +1 votes so the question clears the
+    # minimum-three binding +1 floor required for unanimous_approval.
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="frank", value="+1", is_binding=True)
     client = app.test_client()
     response = await client.post(f"/api/question/{qid}/resolve")
     body = await response.get_json()
     assert body["outcome"] == "approved", body
+
+
+async def test_resolve_unanimous_insufficient_binding_plus_ones(
+    app, stub_session, seed_questions, seed_response
+):
+    """Unanimous approval needs >= 3 binding +1 votes even without a veto."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="unanimous_approval",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="erin", value="+1", is_binding=True)
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "insufficient_votes", body
+
+
+async def test_resolve_majority_insufficient_binding_plus_ones(
+    app, stub_session, seed_questions, seed_response
+):
+    """Majority approval needs >= 3 binding +1 votes."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="majority_approval",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="erin", value="+1", is_binding=True)
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "insufficient_votes", body
 
 
 async def test_resolve_lazy_consensus_blocked_by_objection(

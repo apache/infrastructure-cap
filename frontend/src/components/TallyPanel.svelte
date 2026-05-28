@@ -62,6 +62,15 @@
           {/each}
         </ul>
       {/if}
+      <div
+        class="small mt-2"
+        class:text-success={tally.bindingPlus1 >= tally.minBindingPlus1}
+        class:text-warning={tally.bindingPlus1 < tally.minBindingPlus1}
+      >
+        <i class="fa-solid fa-hashtag me-1"></i>
+        Binding <code class="code-inline">+1</code>:
+        {tally.bindingPlus1} / {tally.minBindingPlus1} required.
+      </div>
     {:else if tally.kind === "majority_approval"}
       <div class="row g-3">
         <div class="col-md-6">
@@ -82,6 +91,20 @@
             <span><code class="code-inline">-1</code> {tally.nonbinding.minus1}</span>
           </div>
         </div>
+      </div>
+      <div
+        class="small mt-2"
+        class:text-success={tally.binding.plus1 >= tally.minBindingPlus1 &&
+          tally.binding.plus1 > tally.binding.minus1}
+        class:text-warning={!(
+          tally.binding.plus1 >= tally.minBindingPlus1 &&
+          tally.binding.plus1 > tally.binding.minus1
+        )}
+      >
+        <i class="fa-solid fa-hashtag me-1"></i>
+        Binding <code class="code-inline">+1</code>:
+        {tally.binding.plus1} / {tally.minBindingPlus1} required, and must
+        outnumber binding <code class="code-inline">-1</code>.
       </div>
     {:else if tally.kind === "lazy_consensus"}
       {#if tally.objections.length === 0}

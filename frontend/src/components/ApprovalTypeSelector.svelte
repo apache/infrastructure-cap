@@ -14,14 +14,14 @@
       id: "unanimous_approval",
       label: "Unanimous approval",
       description:
-        "Anyone with binding +1 can approve; any binding -1 with a technical comment vetoes.",
+        "Needs at least 3 binding +1 votes and no binding veto. Any binding -1 with a technical comment vetoes.",
       icon: "fa-solid fa-scale-balanced",
     },
     {
       id: "majority_approval",
       label: "Majority approval",
       description:
-        "Binding +1 votes must outnumber binding -1 votes when the deadline elapses.",
+        "Needs at least 3 binding +1 votes, and binding +1 must outnumber binding -1 when the deadline elapses.",
       icon: "fa-solid fa-thumbs-up",
     },
     {
