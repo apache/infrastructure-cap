@@ -11,14 +11,6 @@ github:
     - governance
   autolink_jira:
     - INFRA
-notifications:
-  jobs:         notifications@infra.apache.org
-  jira_options: link label comment
-  commits: commits@infra.apache.org
-  issues: commits@infra.apache.org
-  pullrequests: commits@infra.apache.org
-
-github:
   rulesets:
     - name: "Default Branch Protection"
       type: branch
@@ -30,3 +22,10 @@ github:
         - root
       restrict_deletion: true
       restrict_force_push: true
+
+notifications:
+  jobs:         notifications@infra.apache.org
+  jira_options: link label comment
+  commits: commits@infra.apache.org
+  issues: commits@infra.apache.org
+  pullrequests: commits@infra.apache.org
