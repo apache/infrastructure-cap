@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import asfquart
 from pydantic import TypeAdapter, ValidationError
 from quart import Blueprint, Response, current_app, jsonify, request
 from quart_schema import document_response, validate_request, validate_response
@@ -64,7 +65,13 @@ def _permalink_for(question_id: int) -> str:
     return f"{base}/api/resolution/{question_id}"
 
 
-def _notify(event: str, question: Question, *, actor: str, body: str) -> None:
+def _notify(
+    event: str,
+    question: Question,
+    *,
+    actor: AuthenticatedUser,
+    body: str,
+) -> None:
     """Best-effort send; failures are logged inside notify.send()."""
     debug_recipient = _settings().notifications.debug_recipient
     notify.send(  # type: ignore[arg-type]
@@ -274,7 +281,7 @@ async def create_question(data: CreateQuestionRequest) -> Any:
     _notify(
         "created",
         question,
-        actor=user.uid,
+        actor=user,
         body=(
             f"A new contingent-approval question has been opened.\n"
             f"\n"
@@ -389,7 +396,7 @@ async def edit_question(data: EditQuestionRequest, question_id: int) -> Any:
         _notify(
             "edited",
             updated,
-            actor=user.uid,
+            actor=user,
             body=(
                 f"The following fields were changed: {changed}.\n"
                 f"\n"
@@ -452,7 +459,7 @@ async def remove_question(question_id: int) -> Any:
     _notify(
         "closed",
         fresh,
-        actor=user.uid,
+        actor=user,
         body=f"Question #{question_id} was withdrawn by {user.uid} before the deadline.\n",
     )
     return Response("", status=204)
@@ -539,7 +546,7 @@ async def resolve_question(question_id: int) -> Any:
     _notify(
         "resolved",
         final,
-        actor=user.uid,
+        actor=user,
         body=(
             f"Question #{question_id} has been resolved.\n"
             f"\n"
@@ -729,7 +736,7 @@ async def submit_response(question_id: int) -> Any:
     _notify(
         "response",
         question,
-        actor=user.uid,
+        actor=user,
         body=_summarize_response(
             submitted,
             voter=user.uid,

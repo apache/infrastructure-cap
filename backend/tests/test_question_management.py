@@ -668,6 +668,7 @@ def test_notify_send_swallows_dispatch_failures(monkeypatch):
     from types import SimpleNamespace
 
     from cap_backend import notify
+    from cap_backend.auth import AuthenticatedUser
 
     def _explode(**kwargs):
         raise RuntimeError("smtp down")
@@ -680,5 +681,34 @@ def test_notify_send_swallows_dispatch_failures(monkeypatch):
         question_id=42,
         title="x",
     )
-    result = notify.send("created", q, actor="alice", body="b")
+    user = AuthenticatedUser(uid="alice", fullname="Alice Example")
+    result = notify.send("created", q, actor=user, body="b")
     assert result is False  # apparent failure, but no exception bubbled out
+
+
+def test_notify_send_includes_uid_and_fullname(monkeypatch):
+    """The Actor: line surfaces both uid and fullname when available."""
+    from types import SimpleNamespace
+
+    from cap_backend import notify
+    from cap_backend.auth import AuthenticatedUser
+
+    captured: list[dict] = []
+    monkeypatch.setattr(notify, "_send_mail", lambda **kw: captured.append(kw))
+
+    q = SimpleNamespace(project_id="seapony", is_private=False, question_id=7, title="x")
+    notify.send(
+        "created",
+        q,
+        actor=AuthenticatedUser(uid="alice", fullname="Alice Example"),
+        body="b",
+    )
+    assert "Actor: alice (Alice Example)\n" in captured[-1]["message"]
+
+    notify.send(
+        "created",
+        q,
+        actor=AuthenticatedUser(uid="bob"),  # no fullname
+        body="b",
+    )
+    assert "Actor: bob\n" in captured[-1]["message"]

@@ -19,9 +19,14 @@ function without touching SMTP.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+import asfquart
+from quart import request
 from cap_backend.schemas.questions import Question
+
+if TYPE_CHECKING:
+    from cap_backend.auth import AuthenticatedUser
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,11 +62,11 @@ def _subject_for(event: NotificationEvent, question: Question | Any) -> str:
     qid = question.question_id
     title = getattr(question, "title", "")
     prefixes = {
-        "created": "[CAP] New question",
-        "edited": "[CAP] Question updated",
-        "resolved": "[CAP] Question resolved",
-        "closed": "[CAP] Question withdrawn",
-        "response": "[CAP] New response",
+        "created": "[CAP] Vote",
+        "edited": "[CAP] Updated",
+        "resolved": "[CAP] Resolved",
+        "closed": "[CAP] Withdrawn",
+        "response": "[CAP] Re",
     }
     return f"{prefixes[event]} #{qid}: {title}"
 
@@ -82,19 +87,37 @@ def _send_mail(**kwargs: Any) -> None:
     messaging.mail(**kwargs)
 
 
+def _format_actor(actor: AuthenticatedUser | Any) -> str:
+    """Render an actor line that surfaces both the UID and the fullname.
+
+    Falls back gracefully when ``fullname`` is missing or empty: those
+    sessions just show the UID. Subscribers parsing the message body can
+    rely on the ``Actor:`` line always starting with the ASF UID.
+    """
+    uid = getattr(actor, "uid", str(actor))
+    fullname = getattr(actor, "fullname", None)
+    if fullname:
+        return f"{uid} ({fullname})"
+    return uid
+
+
 def send(
     event: NotificationEvent,
     question: Question | Any,
     *,
-    actor: str,
+    actor: AuthenticatedUser | Any,
     body: str,
     debug_recipient: str | None = None,
 ) -> bool:
     """Send a single notification email. Returns True on apparent success.
 
-    The function never raises: a delivery failure is logged at WARNING and
-    swallowed. The audit log is the durable record; email is a courtesy
-    notification and must not roll back a successful state change.
+    ``actor`` is the ``AuthenticatedUser`` from the session that triggered
+    the action; the message body surfaces both the ASF UID and the
+    human-readable ``fullname`` so list subscribers can see who acted
+    without cross-referencing whimsy. The function never raises: a
+    delivery failure is logged at WARNING and swallowed. The audit log
+    is the durable record; email is a courtesy notification and must not
+    roll back a successful state change.
     """
     recipient = recipient_for(question, debug_recipient=debug_recipient)
     subject = _subject_for(event, question)
@@ -102,8 +125,8 @@ def send(
     is_thread_start = event == "created"
 
     message = (
-        f"Actor: {actor}\n"
-        f"Question id: {question.question_id}\n"
+        f"Author: {_format_actor(actor)}\n"
+        f"CAP link: {request.host_url}#/question/{question.question_id}\n"
         f"Project: {question.project_id}\n"
         f"Event: {event}\n"
         f"\n"
@@ -126,5 +149,7 @@ def send(
             event,
             exc,
         )
+        print(subject)
+        print(message)
         return False
     return True
