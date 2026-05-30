@@ -101,6 +101,52 @@ def _format_actor(actor: AuthenticatedUser | Any) -> str:
     return uid
 
 
+def _host_url() -> str:
+    """Return ``request.host_url`` when inside a request, else an empty string.
+
+    notify.send is always called from a request handler in production, but
+    unit tests reach in directly. Falling back to "" keeps the module
+    usable outside a request context without crashing the caller.
+    """
+    try:
+        return request.host_url
+    except RuntimeError:
+        return ""
+
+
+def _footer(question: Question | Any, *, host_url: str) -> str:
+    """Return the standard CAP notification footer.
+
+    Explains why the recipient is on the distribution, who is entitled to
+    respond through CAP, and where to read more about the service. The
+    leading ``-- \\n`` is the conventional email signature delimiter, so
+    most mail clients render the footer as a sig block visually distinct
+    from the per-event body.
+    """
+    project = getattr(question, "project_id", "")
+    return (
+        "-- \n"
+        f"You are receiving this notification because the Apache {project} "
+        "project uses the ASF Contingent Approval Platform (CAP), an "
+        "official Apache Software Foundation service for filing and "
+        "recording the outcome of contingent approval votes.\n"
+        "\n"
+        "How to respond:\n"
+        "  * Committers and committee members of the project may cast "
+        "votes on this question through CAP using the link above.\n"
+        "  * Only committee (PMC/PPMC) members cast binding votes; all "
+        "other votes are recorded but non-binding.\n"
+        "  * Anyone may view public CAP questions "
+        "through the link above.\n"
+        "\n"
+        "Every CAP action is written to an append-only audit log inside "
+        "the same database transaction as the action itself, so every "
+        "recorded decision carries a fully auditable provenance trail.\n"
+        "\n"
+        f"To learn more about CAP, visit: {host_url}#/about\n"
+    )
+
+
 def send(
     event: NotificationEvent,
     question: Question | Any,
@@ -124,13 +170,14 @@ def send(
     thread_key = _thread_key_for(question)
     is_thread_start = event == "created"
 
+    host_url = _host_url()
     message = (
         f"Author: {_format_actor(actor)}\n"
-        f"CAP link: {request.host_url}#/question/{question.question_id}\n"
+        f"CAP link: {host_url}#/question/{question.question_id}\n"
         f"Project: {question.project_id}\n"
-        f"Event: {event}\n"
-        f"\n"
-        f"{body.rstrip()}\n"
+        f"\n\n"
+        f"{body.rstrip()}\n\n"
+        f"{_footer(question, host_url=host_url)}"
     )
 
     try:

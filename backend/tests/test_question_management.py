@@ -703,7 +703,8 @@ def test_notify_send_includes_uid_and_fullname(monkeypatch):
         actor=AuthenticatedUser(uid="alice", fullname="Alice Example"),
         body="b",
     )
-    assert "Actor: alice (Alice Example)\n" in captured[-1]["message"]
+    assert "Author: alice (Alice Example)\n" in captured[-1]["message"]
+    assert "About CAP:" in captured[-1]["message"]
 
     notify.send(
         "created",
@@ -711,4 +712,4 @@ def test_notify_send_includes_uid_and_fullname(monkeypatch):
         actor=AuthenticatedUser(uid="bob"),  # no fullname
         body="b",
     )
-    assert "Actor: bob\n" in captured[-1]["message"]
+    assert "Author: bob\n" in captured[-1]["message"]

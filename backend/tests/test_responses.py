@@ -82,7 +82,7 @@ async def test_submit_vote_response_happy_path(app, stub_session, seed_questions
 
     assert len(captured_emails) == 1
     mail = captured_emails[-1]
-    assert "response" in mail["subject"].lower()
+    assert mail["subject"].startswith("[CAP] Re ")
     assert mail["thread_start"] is False
     assert mail["thread_key"] == f"cap-question-{qid}"
 
