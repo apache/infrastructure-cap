@@ -106,6 +106,37 @@
         {tally.binding.plus1} / {tally.minBindingPlus1} required, and must
         outnumber binding <code class="code-inline">-1</code>.
       </div>
+    {:else if tally.kind === "simple_majority"}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="small text-muted">Binding</div>
+          <div class="d-flex gap-3">
+            <span><code class="code-inline">+1</code> {tally.binding.plus1}</span>
+            <span><code class="code-inline">+0</code> {tally.binding.plus0}</span>
+            <span><code class="code-inline">-0</code> {tally.binding.minus0}</span>
+            <span><code class="code-inline">-1</code> {tally.binding.minus1}</span>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="small text-muted">Non-binding</div>
+          <div class="d-flex gap-3 text-muted">
+            <span><code class="code-inline">+1</code> {tally.nonbinding.plus1}</span>
+            <span><code class="code-inline">+0</code> {tally.nonbinding.plus0}</span>
+            <span><code class="code-inline">-0</code> {tally.nonbinding.minus0}</span>
+            <span><code class="code-inline">-1</code> {tally.nonbinding.minus1}</span>
+          </div>
+        </div>
+      </div>
+      <div
+        class="small mt-2"
+        class:text-success={tally.binding.plus1 > tally.binding.minus1}
+        class:text-warning={tally.binding.plus1 <= tally.binding.minus1}
+      >
+        <i class="fa-solid fa-hashtag me-1"></i>
+        Binding <code class="code-inline">+1</code> ({tally.binding.plus1})
+        must strictly outnumber binding <code class="code-inline">-1</code>
+        ({tally.binding.minus1}). No minimum-three-votes floor.
+      </div>
     {:else if tally.kind === "lazy_consensus"}
       {#if tally.objections.length === 0}
         <div class="text-success">

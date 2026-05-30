@@ -40,13 +40,24 @@ export interface MajorityPreview {
   approved: boolean;
 }
 
+export interface SimpleMajorityPreview {
+  kind: "simple_majority";
+  binding: { plus1: number; plus0: number; minus0: number; minus1: number };
+  nonbinding: { plus1: number; plus0: number; minus0: number; minus1: number };
+  approved: boolean;
+}
+
 export interface LazyPreview {
   kind: "lazy_consensus";
   objections: { voter: string; comment: string | null }[];
   approved: boolean;
 }
 
-export type TallyPreview = UnanimousPreview | MajorityPreview | LazyPreview;
+export type TallyPreview =
+  | UnanimousPreview
+  | MajorityPreview
+  | SimpleMajorityPreview
+  | LazyPreview;
 
 export function previewTally(
   question: Question,
@@ -78,7 +89,10 @@ export function previewTally(
     };
   }
 
-  if (question.approval_type === "majority_approval") {
+  if (
+    question.approval_type === "majority_approval" ||
+    question.approval_type === "simple_majority"
+  ) {
     const counts = {
       plus1: 0,
       plus0: 0,
@@ -105,6 +119,14 @@ export function previewTally(
           bucket.minus1++;
           break;
       }
+    }
+    if (question.approval_type === "simple_majority") {
+      return {
+        kind: "simple_majority",
+        binding,
+        nonbinding,
+        approved: binding.plus1 > binding.minus1,
+      };
     }
     return {
       kind: "majority_approval",

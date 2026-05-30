@@ -12,6 +12,7 @@ export interface UserSession {
 export type ApprovalType =
   | "unanimous_approval"
   | "majority_approval"
+  | "simple_majority"
   | "lazy_consensus";
 
 export type QuestionStatus = "open" | "resolved" | "removed";

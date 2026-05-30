@@ -82,10 +82,12 @@
       enforces that distinction at tally time. The tally rules vary by
       approval type: a unanimous-approval question is decided by whether
       any binding voter holds a veto, a majority-approval question by
-      counting binding votes, and a lazy-consensus question by whether
-      any objection (binding or not) has been raised in the window. The
-      rules are fixed in code so that every project sees the same
-      determinstic process, logic, and arithmetic.
+      counting binding votes against a minimum-three-votes floor, a
+      simple-majority question by counting binding votes with no floor,
+      and a lazy-consensus question by whether any objection (binding or
+      not) has been raised in the window. The rules are fixed in code so
+      that every project sees the same determinstic process, logic, and
+      arithmetic.
     </p>
 
     <p>
@@ -120,10 +122,10 @@
   <p>
     The diagram below walks through the lifecycle of a question, from the
     moment a user logs in through to the publication of the resolution.
-    The common flow is the same across all approval types; the three
+    The common flow is the same across all approval types; the four
     cards inside the resolution step show how the tally rules differ
-    between <em>unanimous approval</em>, <em>majority approval</em>, and
-    <em>lazy consensus</em>.
+    between <em>unanimous approval</em>, <em>majority approval</em>,
+    <em>simple majority</em>, and <em>lazy consensus</em>.
   </p>
 
   <div class="workflow-chart my-4" role="img"
@@ -155,8 +157,8 @@
         <div class="wf-step-text">
           The requester picks a project they are a member of, writes the
           question (title, description, target audience), chooses an
-          <strong>approval type</strong> (unanimous, majority, or lazy
-          consensus) and a <strong>response option</strong> (vote, lazy
+          <strong>approval type</strong> (unanimous, majority, simple
+          majority, or lazy consensus) and a <strong>response option</strong> (vote, lazy
           consensus, or free text), and sets a <strong>closes_at</strong>
           deadline. Committee members may additionally mark a question
           <em>private</em>, scoping its event stream to the project's
@@ -222,7 +224,7 @@
         </div>
 
         <div class="row g-3 mt-1">
-          <div class="col-md-4">
+          <div class="col-md-6 col-lg-3">
             <div class="card h-100 border-primary-subtle">
               <div class="card-body">
                 <h3 class="h6 mb-2">
@@ -244,7 +246,7 @@
               </div>
             </div>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6 col-lg-3">
             <div class="card h-100 border-primary-subtle">
               <div class="card-body">
                 <h3 class="h6 mb-2">
@@ -263,7 +265,26 @@
               </div>
             </div>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6 col-lg-3">
+            <div class="card h-100 border-primary-subtle">
+              <div class="card-body">
+                <h3 class="h6 mb-2">
+                  <i class="fa-solid fa-arrow-up-9-1 text-primary me-1"></i>
+                  Simple majority
+                </h3>
+                <p class="small mb-0">
+                  Passes whenever the binding <code>+1</code> tally
+                  strictly outnumbers the binding <code>-1</code> tally
+                  at the deadline. There is <strong>no
+                  minimum-three-votes floor</strong>: a single binding
+                  <code>+1</code> with no binding <code>-1</code> is
+                  enough. Like majority approval, there are no vetoes;
+                  a <code>-1</code> is just a counted vote against.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3">
             <div class="card h-100 border-primary-subtle">
               <div class="card-body">
                 <h3 class="h6 mb-2">

@@ -559,6 +559,9 @@ Currently those constraints are:
   `allow_comment === true` (vetoes require a comment).
 - `approval_type = "majority_approval"` accepts either `"vote"` or
   `"free_text"`.
+- `approval_type = "simple_majority"` accepts either `"vote"` or
+  `"free_text"` (same shape as `majority_approval`; the difference
+  is the tally rule, not the question shape).
 
 When the user changes `approval_type` to something incompatible
 with the currently-selected `response_option.kind`, the editor
@@ -613,7 +616,11 @@ content depends on `question.status`:
   resolved") and shows a per-`approval_type` breakdown:
   - `unanimous_approval`: "No veto" or "Vetoed by <uid>: <comment>"
   - `majority_approval`: binding +1 / 0 / -1 counts, with
-    non-binding counts in a muted secondary line
+    non-binding counts in a muted secondary line. Flagged when
+    binding +1 < 3 or binding +1 ≤ binding -1.
+  - `simple_majority`: same binding/non-binding counts layout as
+    `majority_approval`, but the approval predicate is just
+    `binding +1 > binding -1` (no minimum-three-votes floor).
   - `lazy_consensus`: "No objection" or "Objection from <uid>"
 - **`resolved`**: the outcome (`approved` / `vetoed` /
   `insufficient_votes`), the tally object from the backend's
@@ -797,17 +804,23 @@ the backend spec) and the HTML element used to render it.
 | `title`           | `str`, max 200                                         | `<input type="text" maxlength="200">`         |
 | `description`     | `str`, max 10000                                       | `<textarea maxlength="10000" rows="8">`       |
 | `target_audience` | `str`                                                  | `<input type="text">`                         |
-| `approval_type`   | `Literal["unanimous_approval","majority_approval","lazy_consensus"]` | `<ApprovalTypeSelector>` (radio cards) |
+| `approval_type`   | `Literal["unanimous_approval","majority_approval","simple_majority","lazy_consensus"]` | `<ApprovalTypeSelector>` (radio cards) |
 | `is_binding`      | `bool`                                                 | `<input type="checkbox">`                     |
 | `is_private`      | `bool` (only enabled if project in `session.committees`) | `<input type="checkbox">`                   |
 | `response_option` | discriminated union of `VoteOption / LazyConsensusOption / FreeTextOption` | `<ResponseOptionEditor>`        |
 | `closes_at`       | `datetime` (ISO 8601 UTC)                              | `<input type="datetime-local">` + UTC convert |
 
-The `<ApprovalTypeSelector>` is a three-card radio layout, each
-card showing the type's name, a one-line description, and an icon
+The `<ApprovalTypeSelector>` is a four-card radio layout, each
+card showing the type's name, a one-line description, an icon
 (`fa-balance-scale` for unanimous, `fa-thumbs-up` for majority,
-`fa-feather` for lazy consensus). This matches the visual
-vocabulary at <https://agenda.apache.org/>.
+`fa-arrow-up-9-1` for simple majority, `fa-leaf` for lazy
+consensus), and a small "ASF glossary" link that opens the
+matching entry on the Apache Software Foundation glossary
+(<https://www.apache.org/foundation/glossary>) in a new tab.
+The glossary anchors used are `ConsensusApproval` (for unanimous
+approval), `MajorityApproval`, `SimpleMajority`, and
+`LazyConsensus`. This matches the visual vocabulary at
+<https://agenda.apache.org/>.
 
 ### 11.2 `EditQuestionRequest` (EditQuestion page)
 
