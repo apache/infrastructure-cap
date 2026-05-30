@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS questions (
         CHECK (approval_type IN (
             'unanimous_approval',
             'majority_approval',
+            'simple_majority',
             'lazy_consensus'
         )),
     response_option_json TEXT NOT NULL,

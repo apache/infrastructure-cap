@@ -481,6 +481,7 @@ CREATE TABLE IF NOT EXISTS questions (
         CHECK (approval_type IN (
             'unanimous_approval',
             'majority_approval',
+            'simple_majority',
             'lazy_consensus'
         )),
     response_option_json TEXT NOT NULL,               -- JSON: ResponseOption
@@ -897,6 +898,7 @@ class Question(BaseModel):
     approval_type: Literal[
         "unanimous_approval",
         "majority_approval",
+        "simple_majority",
         "lazy_consensus",
     ]
 
@@ -1011,6 +1013,19 @@ server enforces the rules below at submission and resolution time.
   outcome is `insufficient_votes`. The three-vote floor matches
   the unanimous-approval rule so that both vote types have the
   same minimum participation bar.
+
+- **`simple_majority`** — All binding votes are counted and the
+  outcome is determined by which side has more support. There are
+  no vetoes: a `-1` is just a counted vote against, no matter who
+  casts it, and no `comment` is required. The question is
+  **approved** at the deadline if and only if the binding `+1`
+  tally is strictly greater than the binding `-1` tally;
+  otherwise the outcome is `insufficient_votes`. Unlike
+  `majority_approval`, there is **no minimum binding-`+1` floor**:
+  a single binding `+1` with no binding `-1` is enough to carry
+  the question. This is the right approval type for low-stakes
+  decisions where any positive lean from the binding voters
+  should be sufficient.
 
 - **`lazy_consensus`** — Silence is assent. The question is
   considered approved at the deadline provided no `-1` (or
@@ -1299,6 +1314,13 @@ intent.
   binding `+1`s than binding `-1`s; otherwise `insufficient_votes`.
   Non-binding votes are recorded in the audit-log tally for
   transparency but do not affect the outcome.
+- `simple_majority`: tally the latest response per voter. The
+  outcome is `approved` iff there are strictly more binding `+1`
+  votes than binding `-1` votes; otherwise `insufficient_votes`.
+  There is **no minimum binding-`+1` floor**: a single binding
+  `+1` with no binding `-1` is enough to approve. Non-binding
+  votes are recorded in the audit-log tally for transparency but
+  do not affect the outcome.
 - `lazy_consensus`: outcome is `insufficient_votes` if any voter's
   latest response is either a `LazyConsensusResponse` with
   `objection=True` or a `vote` whose `value == "-1"`; otherwise
@@ -1314,8 +1336,9 @@ The `details_json` payload written to `audit_log.resolve` always
 includes the keys `approval_type`, `binding_voters`, `all_voters`,
 and an algorithm-specific tally object: `counts` / `binding_counts`
 / `vetoes` / `min_binding_plus_one` for unanimous, `counts` /
-`binding_counts` / `min_binding_plus_one` for majority, and
-`objections` for lazy consensus.
+`binding_counts` / `min_binding_plus_one` for majority, `counts` /
+`binding_counts` for simple majority, and `objections` for lazy
+consensus.
 
 **Early resolution.** Calling resolve before `closes_at` is
 restricted to root (`session.isRoot`); the original requester

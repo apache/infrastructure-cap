@@ -30,6 +30,7 @@ class Question(BaseModel):
     approval_type: Literal[
         "unanimous_approval",
         "majority_approval",
+        "simple_majority",
         "lazy_consensus",
     ]
 
@@ -122,6 +123,7 @@ class CreateQuestionRequest(BaseModel):
     approval_type: Literal[
         "unanimous_approval",
         "majority_approval",
+        "simple_majority",
         "lazy_consensus",
     ]
     is_binding: bool

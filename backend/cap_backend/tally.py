@@ -42,6 +42,8 @@ def compute_outcome(
         return _tally_unanimous(latest, binding_voters, all_voters)
     if approval == "majority_approval":
         return _tally_majority(latest, binding_voters, all_voters)
+    if approval == "simple_majority":
+        return _tally_simple_majority(latest, binding_voters, all_voters)
     if approval == "lazy_consensus":
         return _tally_lazy(latest, binding_voters, all_voters)
     raise ValueError(f"Unknown approval_type: {approval!r}")
@@ -132,6 +134,43 @@ def _tally_majority(
         "min_binding_plus_one": MIN_BINDING_PLUS_ONE,
     }
     if binding_counts["+1"] >= MIN_BINDING_PLUS_ONE and binding_counts["+1"] > binding_counts["-1"]:
+        return "approved", tally
+    return "insufficient_votes", tally
+
+
+def _tally_simple_majority(
+    latest: dict[str, sqlite3.Row],
+    binding_voters: list[str],
+    all_voters: list[str],
+) -> tuple[Outcome, dict[str, Any]]:
+    """Simple majority of binding votes carries the question.
+
+    Concretely: count the latest response of each binding voter. The
+    question is approved when there are strictly more binding ``+1``
+    votes than binding ``-1`` votes; otherwise the outcome is
+    ``insufficient_votes``. Unlike ``majority_approval`` there is no
+    minimum binding ``+1`` floor: a single binding ``+1`` with no
+    binding ``-1`` is enough to approve.
+    """
+    counts = {"+1": 0, "+0": 0, "-0": 0, "-1": 0}
+    binding_counts = {"+1": 0, "+0": 0, "-0": 0, "-1": 0}
+    for row in latest.values():
+        if row["response_kind"] != "vote":
+            continue
+        value = _vote_payload(row).get("value")
+        if value in counts:
+            counts[value] += 1
+            if row["is_binding"]:
+                binding_counts[value] += 1
+
+    tally: dict[str, Any] = {
+        "approval_type": "simple_majority",
+        "binding_voters": binding_voters,
+        "all_voters": all_voters,
+        "counts": counts,
+        "binding_counts": binding_counts,
+    }
+    if binding_counts["+1"] > binding_counts["-1"]:
         return "approved", tally
     return "insufficient_votes", tally
 

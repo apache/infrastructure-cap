@@ -549,6 +549,99 @@ async def test_resolve_majority_no_binding_votes_is_insufficient(
     assert body["outcome"] == "insufficient_votes"
 
 
+async def test_resolve_simple_majority_single_binding_plus_one_approves(
+    app, stub_session, seed_questions, seed_response
+):
+    """simple_majority has no minimum +1 floor: 1 binding +1 is enough."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="simple_majority",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "approved", body
+
+
+async def test_resolve_simple_majority_more_plus_than_minus_approves(
+    app, stub_session, seed_questions, seed_response
+):
+    """simple_majority approves when binding +1 strictly exceeds binding -1."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="simple_majority",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="erin", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="frank", value="-1", is_binding=True)
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "approved", body
+
+
+async def test_resolve_simple_majority_tie_is_insufficient(
+    app, stub_session, seed_questions, seed_response
+):
+    """A tie between binding +1 and binding -1 does not carry."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="simple_majority",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="erin", value="-1", is_binding=True)
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "insufficient_votes", body
+
+
+async def test_resolve_simple_majority_more_minus_than_plus_is_insufficient(
+    app, stub_session, seed_questions, seed_response
+):
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="simple_majority",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="erin", value="-1", is_binding=True)
+    seed_response(app, question_id=qid, voter="frank", value="-1", is_binding=True)
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "insufficient_votes", body
+
+
+async def test_resolve_simple_majority_no_votes_is_insufficient(
+    app, stub_session, seed_questions
+):
+    """With no binding votes at all, the outcome is insufficient_votes."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="simple_majority",
+        closes_at=_past_iso(),
+    )
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    assert body["outcome"] == "insufficient_votes", body
+
+
 # ---------------------------------------------------------------------------
 # notify module unit tests
 # ---------------------------------------------------------------------------
