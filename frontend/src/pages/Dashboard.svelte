@@ -58,7 +58,7 @@
         ></button>
         <h2 class="h5 mb-2">
           <i class="fa-solid fa-leaf me-2 text-primary"></i>
-          Welcome to the ASF's Contingent Approval Platform
+          Welcome to the ASF's Contingent Approval Platform (CAP)
         </h2>
         <p class="mb-1">
           This site hosts a fully auditable demo archive of
@@ -66,7 +66,7 @@
           Foundation.
         </p>
         <p class="mb-2 text-muted small">
-          The archive of public project decisions is open for the public
+          The archive of public project decisions is open for all
           to view, but interacting with the decision-making process is
           limited to committers and committee members of the respective
           projects.
