@@ -52,40 +52,47 @@
 
   <section class="mb-4">
     <p>
-      The <strong>Contingent Approval Platform</strong> (or CAP for short) is
+      The <strong>Contingent Approval Platform</strong> (or CAP) is
       a foundation-wide service that captures and records the technical
-      decisions taken by projects and services at the Apache Software Foundation (ASF).
-      Wherever a project or service needs to ask a binary or graded question of a community
-      (a release vote, a committee sign-off, a lazy consensus on a
-      configuration change, an approval for a sensitive operation, etc.), CAP
+      decisions taken by projects and services of the Apache Software Foundation (ASF).
+      Wherever a project or service needs to ask a binary or graded question of its community
+      (a release vote, a committee sign-off, lazy consensus on a
+      configuration change, approval for a sensitive operation, etc.), CAP
       can provide a canonical place to file the question, gather the
       responses, and record the outcome with a permanent resolution link.
     </p>
 
     <p>
       CAP models every decision as a <em>question</em> with a fixed
-      <em>response option</em> (a vote, a lazy consensus, or a free-text
+      <em>response option</em> (a vote, lazy consensus, or a free-text
       response), a <em>target audience</em>, a <em>scope</em> (the project
       the question is filed against, and optionally a privacy flag for
       committee-only questions), and a hard <em>closes_at</em> deadline.
-      Every state-changing action against a question, from the initial
-      filing through each individual response to the final resolution, is
-      written to an append-only <strong>audit log</strong> inside the same
+      CAP writes Every state-changing action against a question, from the initial
+      filing through each individual response to the final resolution,
+      to an append-only <strong>audit log</strong> inside the same
       database transaction as the action itself. The audit trail and MFA
-      requirements of CAP lends better security assurances for project
+      requirements of CAP lend better security assurances for project
       decisions.
     </p>
 
     <p>
-      CAP distinguishes <strong>binding</strong> votes (votes from members
-      of the project's management committee) from non-binding votes, and
-      enforces that distinction at tally time. The tally rules vary by
-      approval type: a unanimous-approval question is decided by whether
-      any binding voter holds a veto, a majority-approval question by
-      counting binding votes against a minimum-three-votes floor, a
-      simple-majority question by counting binding votes with no floor,
-      and a lazy-consensus question by whether any objection (binding or
-      not) has been raised in the window. The rules are fixed in code so
+      CAP distinguishes <strong>binding</strong> votes (votes by members
+      of a project's management committee) from non-binding votes, and
+      enforces that distinction at tally time.</p>
+    <p>
+      The tally rules vary by approval type:</p>
+    <ul>
+      <li>a <strong>unanimous-approval</strong> question is decided by whether
+      any binding voter holds a veto</li>
+      <li>a <strong>majority-approval</strong> question by
+      counting binding votes against a minimum-three-votes floor</li>
+      <li>a <strong>simple-majority</strong> question by counting binding votes with no floor</li>
+      <li>a <strongb>lazy-consensus</strong> question by whether any objection (binding or
+      not) has been raised in the voting window</li>
+    </ul> 
+    <p>
+      The rules are fixed in code so
       that every project sees the same determinstic process, logic, and
       arithmetic.
     </p>
@@ -104,7 +111,7 @@
 
     <p>
       The long-term goal is a more <strong>uniform and user-friendly</strong>
-      decision-making process across all Apache projects, and across most
+      decision-making process across all ASF projects, and across most
       of the services they rely on: one user interface, one audit format,
       one event stream, and a single canonical permalink for every
       recorded outcome.
@@ -137,9 +144,9 @@
         <div class="wf-step-title">1. Log in via ASF OAuth</div>
         <div class="wf-step-text">
           The user opens CAP and signs in with their Apache account. The
-          session reveals which projects the user is a member of, and
-          which of those projects they hold a committee (binding) seat
-          on. Anyone may browse public questions; only logged-in users
+          session reveals which projects the user is a member of, and on
+          which of those projects they hold a committee (binding) seat. 
+          Anyone may browse public questions; only logged-in users
           may file or respond.
         </div>
       </div>
@@ -162,7 +169,7 @@
           consensus, or free text), and sets a <strong>closes_at</strong>
           deadline. Committee members may additionally mark a question
           <em>private</em>, scoping its event stream to the project's
-          private list.
+          private mailing list.
         </div>
       </div>
     </div>
@@ -179,7 +186,7 @@
         <div class="wf-step-text">
           CAP writes the question to its database, appends a
           <code>question.created</code> row to the audit log, sends an
-          announcement to the project's mailing list (or the private
+          announcement to the project's <code>dev@</code> mailing list (or the <code>private@</code>
           list, for private questions), and broadcasts a structured
           event on the pubsub stream so external consumers can react.
         </div>
@@ -197,12 +204,12 @@
         <div class="wf-step-title">4. Audience members respond</div>
         <div class="wf-step-text">
           Voters in the target audience load the question and submit a
-          response that matches the question's response option. Each
+          response that matches the question's response options. Each
           response is timestamped, attributed, and stamped as either
           <strong>binding</strong> (voter is on the project's committee)
           or <strong>non-binding</strong>. Voters may amend their
           response at any time before resolution; the latest submission
-          per voter is the one that counts, and the earlier rows are
+          per voter is the one that counts, but the earlier rows are
           retained for the audit trail.
         </div>
       </div>
@@ -260,7 +267,7 @@
                   binding <code>-1</code> tally at the deadline.
                   Non-binding votes are recorded alongside but do not
                   decide the outcome. There are no vetoes: a
-                  <code>-1</code> is just a counted vote against.
+                  <code>-1</code> is just counted as a vote against.
                 </p>
               </div>
             </div>
@@ -273,13 +280,13 @@
                   Simple majority
                 </h3>
                 <p class="small mb-0">
-                  Passes whenever the binding <code>+1</code> tally
+                  Passes if the binding <code>+1</code> tally
                   strictly outnumbers the binding <code>-1</code> tally
                   at the deadline. There is <strong>no
                   minimum-three-votes floor</strong>: a single binding
                   <code>+1</code> with no binding <code>-1</code> is
-                  enough. Like majority approval, there are no vetoes;
-                  a <code>-1</code> is just a counted vote against.
+                  enough. As with majority approval, there are no vetoes;
+                  a <code>-1</code> vote is just counted as a vote against.
                 </p>
               </div>
             </div>
@@ -295,7 +302,7 @@
                   Silence is assent. The question is approved at the
                   deadline provided no objection (binding or non-binding)
                   was recorded during the voting window. Any objection,
-                  from any audience member, blocks approval and marks
+                  from any audience member, blocks approval and CAP marks
                   the question as <em>insufficient_votes</em>.
                 </p>
               </div>
@@ -345,7 +352,7 @@
 
   <p>
     CAP is designed to act as a shared decision-recording backend for
-    other Apache infrastructure. The HTTP API and the pubsub event
+    other ASF infrastructure. The HTTP API and the pubsub event
     stream together provide everything an automated workflow needs to
     file a question, wait for a verdict, and resume on the outcome,
     without having to host its own voting machinery.
@@ -364,7 +371,7 @@
       committee sign-off).
     </li>
     <li>
-      It calls <code>POST /api/question</code> with the question body,
+      The service calls <code>POST /api/question</code> with the question body,
       using an ASF personal access token issued by
       <code>GET /api/token</code>. The question carries a
       <code>request_id</code> generated by the calling service so the
