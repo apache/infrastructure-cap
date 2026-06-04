@@ -18,7 +18,7 @@
     "svelte-check": "^3.8.6",
     "tslib": "^2.7.0",
     "typescript": "^5.5.4",
-    "vite": "^5.4.6"
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.6.0",
