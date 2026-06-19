@@ -132,7 +132,8 @@ frontend/
     │   ├── ResponseOptionEditor.svelte  # discriminated-union builder
     │   ├── ResponseForm.svelte # voter-side response submission
     │   ├── TallyPanel.svelte   # live tally summary on the detail page
-    │   ├── ResponseTimeline.svelte # full per-voter response history
+    │   ├── ResponseTimeline.svelte # response history; rolls up superseded responses
+    │   ├── ResponseRow.svelte       # one response row (voter, value, comment, time)
     │   ├── CountdownBadge.svelte    # closes_at -> "2d 14h" badge
     │   ├── ProjectPicker.svelte     # select project_id from session
     │   ├── ApprovalTypeSelector.svelte
@@ -639,9 +640,10 @@ a fast read on where the question stands.
 
 ### 8.7 `<ResponseTimeline>`
 
-A scrollable list of every response in the question's `responses`
-array, ordered oldest first (matching the backend's order in
-`QuestionDetail.responses`). Each row shows:
+A scrollable list of the question's `responses`, ordered oldest first
+(matching the backend's order in `QuestionDetail.responses`). A
+current response renders inline as a row (`<ResponseRow>`); each row
+shows:
 
 - The voter's UID (linked to `https://whimsy.apache.org/roster/committer/<uid>`)
 - A binding/non-binding chip
@@ -654,9 +656,16 @@ array, ordered oldest first (matching the backend's order in
   ISO-UTC timestamp as a tooltip
 
 Superseded responses (a voter's earlier vote that they later
-amended) are dimmed and marked "superseded by <uid>'s later
-response." This is how the UI surfaces veto withdrawals
-(section 8.3.1 of the backend spec).
+amended) are not shown inline. Instead, each maximal run of
+consecutive superseded responses by the same voter is collapsed into
+a single expandable rollup ("Show N earlier response(s) by <uid>")
+that, when expanded, reveals the full history of those earlier
+responses (dimmed, oldest first, each rendered as a `<ResponseRow>`).
+A run is broken by a different voter or by the voter's own current
+response, so an amend-in-place sequence collapses to one rollup
+sitting just above the current response. This keeps the timeline
+focused on live responses while still surfacing veto withdrawals
+(section 8.3.1 of the backend spec) on demand.
 
 ### 8.8 `<CountdownBadge>`
 

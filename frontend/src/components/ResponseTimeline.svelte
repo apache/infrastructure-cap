@@ -1,9 +1,14 @@
 <script lang="ts">
   import type { StoredResponse } from "../lib/types";
-  import { formatLocal, formatRelative } from "../lib/time";
-  import ExpandableComment from "./ExpandableComment.svelte";
+  import ResponseRow from "./ResponseRow.svelte";
 
   export let responses: StoredResponse[];
+
+  // A current response renders inline; a run of consecutive superseded
+  // responses by one voter is collapsed into an expandable rollup.
+  type TimelineItem =
+    | { kind: "current"; response: StoredResponse }
+    | { kind: "rollup"; voter: string; responses: StoredResponse[] };
 
   // Mark each row as "superseded" if a later row exists from the same voter.
   $: ranked = (() => {
@@ -20,14 +25,46 @@
     }));
   })();
 
-  function summarize(r: StoredResponse): string {
-    if (r.response.kind === "vote") return r.response.value;
-    if (r.response.kind === "lazy_consensus")
-      return r.response.objection ? "Objection" : "No objection";
-    return r.response.text.length > 80
-      ? r.response.text.slice(0, 80) + "..."
-      : r.response.text;
+  // Walk the ordered rows (oldest first) and collapse each maximal run of
+  // consecutive superseded responses from the same voter into one rollup.
+  // Current responses (and runs broken by a different voter) stay distinct.
+  $: items = ((): TimelineItem[] => {
+    const out: TimelineItem[] = [];
+    let i = 0;
+    while (i < ranked.length) {
+      if (ranked[i].superseded) {
+        const voter = ranked[i].r.voter;
+        const run: StoredResponse[] = [];
+        while (
+          i < ranked.length &&
+          ranked[i].superseded &&
+          ranked[i].r.voter === voter
+        ) {
+          run.push(ranked[i].r);
+          i++;
+        }
+        out.push({ kind: "rollup", voter, responses: run });
+      } else {
+        out.push({ kind: "current", response: ranked[i].r });
+        i++;
+      }
+    }
+    return out;
+  })();
+
+  // Keyed by the first response in a rollup so the toggle state is stable
+  // across re-renders.
+  let expanded = new Set<string>();
+  function toggle(key: string) {
+    if (expanded.has(key)) expanded.delete(key);
+    else expanded.add(key);
+    expanded = expanded;
   }
+
+  const itemKey = (item: TimelineItem): string =>
+    item.kind === "current"
+      ? item.response.response_id
+      : `rollup-${item.responses[0].response_id}`;
 </script>
 
 <div class="card">
@@ -44,49 +81,53 @@
     </div>
   {:else}
     <ul class="list-group list-group-flush">
-      {#each ranked as row (row.r.response_id)}
-        <li class="list-group-item timeline-row" class:superseded={row.superseded}>
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <span class="voter">
-                <a
-                  href="https://whimsy.apache.org/roster/committer/{row.r.voter}"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {row.r.voter}
-                </a>
-              </span>
-              <span class="badge bg-{row.r.is_binding ? 'primary' : 'secondary'} ms-2">
-                {row.r.is_binding ? "binding" : "non-binding"}
-              </span>
-              {#if row.r.is_veto}
-                <span class="badge bg-danger ms-1">
-                  <i class="fa-solid fa-ban me-1"></i>veto
-                </span>
-              {/if}
-              {#if row.superseded}
-                <span class="badge bg-light text-muted border ms-1"
-                  >superseded</span
-                >
-              {/if}
-              <div class="small mt-1">
-                <code class="code-inline">{summarize(row.r)}</code>
-                {#if row.r.comment}
-                  &mdash; <ExpandableComment text={row.r.comment} />
-                {/if}
-              </div>
-            </div>
-            <div
-              class="text-muted small text-end"
-              title={row.r.created_at}
+      {#each items as item (itemKey(item))}
+        {@const key = itemKey(item)}
+        {@const open = expanded.has(key)}
+        <li class="list-group-item">
+          {#if item.kind === "current"}
+            <ResponseRow response={item.response} />
+          {:else}
+            <button
+              type="button"
+              class="btn btn-link btn-sm p-0 text-decoration-none rollup-toggle"
+              aria-expanded={open}
+              on:click={() => toggle(key)}
             >
-              <div>{formatRelative(row.r.created_at)}</div>
-              <div class="text-nowrap">{formatLocal(row.r.created_at)}</div>
-            </div>
-          </div>
+              <i
+                class="fa-solid fa-chevron-{open ? 'down' : 'right'} me-1 small"
+              ></i>
+              <i class="fa-solid fa-clock-rotate-left me-1"></i>
+              {open ? "Hide" : "Show"}
+              {item.responses.length}
+              earlier {item.responses.length === 1 ? "response" : "responses"}
+              by {item.voter}
+            </button>
+            {#if open}
+              <ul class="list-unstyled mb-0 mt-2 ps-3 rollup-body">
+                {#each item.responses as r (r.response_id)}
+                  <li class="py-2">
+                    <ResponseRow response={r} />
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          {/if}
         </li>
       {/each}
     </ul>
   {/if}
 </div>
+
+<style>
+  .rollup-toggle {
+    font-weight: 500;
+  }
+  .rollup-body {
+    border-left: 2px solid var(--bs-border-color, #dee2e6);
+    opacity: 0.7;
+  }
+  .rollup-body li + li {
+    border-top: 1px solid var(--bs-border-color, #dee2e6);
+  }
+</style>
