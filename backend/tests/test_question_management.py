@@ -127,27 +127,19 @@ async def test_create_question_accepts_title_at_limit(app, stub_session, capture
 
 async def test_create_question_rejects_overlong_target_audience(app, stub_session):
     client = app.test_client()
-    response = await client.post(
-        "/api/question", json=_create_body(target_audience="x" * 201)
-    )
+    response = await client.post("/api/question", json=_create_body(target_audience="x" * 201))
     assert response.status_code in (400, 422)
 
 
 async def test_create_question_rejects_overlong_description(app, stub_session):
     client = app.test_client()
-    response = await client.post(
-        "/api/question", json=_create_body(description="x" * 2501)
-    )
+    response = await client.post("/api/question", json=_create_body(description="x" * 2501))
     assert response.status_code in (400, 422)
 
 
-async def test_create_question_accepts_description_at_limit(
-    app, stub_session, captured_emails
-):
+async def test_create_question_accepts_description_at_limit(app, stub_session, captured_emails):
     client = app.test_client()
-    response = await client.post(
-        "/api/question", json=_create_body(description="x" * 2500)
-    )
+    response = await client.post("/api/question", json=_create_body(description="x" * 2500))
     assert response.status_code == 201
 
 

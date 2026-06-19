@@ -659,7 +659,9 @@ async def submit_response(question_id: int) -> Any:
         )
     # vote / lazy_consensus carry an optional free-form comment, capped at a
     # fixed length (§8.2). free_text has no comment; its body is the response.
-    submitted_comment = getattr(submitted, "comment", None) if submitted.kind != "free_text" else None
+    submitted_comment = (
+        getattr(submitted, "comment", None) if submitted.kind != "free_text" else None
+    )
     if submitted_comment is not None and len(submitted_comment) > COMMENT_MAX_LENGTH:
         return (
             jsonify(
