@@ -7,6 +7,14 @@ from typing import Annotated
 
 from pydantic import Field
 
+# Length limits shared by the request/response models and re-checked in the
+# route handlers. The frontend mirrors these in ``frontend/src/lib/limits.ts``;
+# keep the two in sync.
+TITLE_MAX_LENGTH = 200
+TARGET_AUDIENCE_MAX_LENGTH = 200
+DESCRIPTION_MAX_LENGTH = 2500
+COMMENT_MAX_LENGTH = 2500
+
 ASFUserID = Annotated[
     str,
     Field(

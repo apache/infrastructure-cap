@@ -261,6 +261,41 @@ async def test_free_text_exceeding_max_length_rejected(app, stub_session, seed_q
     assert body["error"] == "text_too_long"
 
 
+async def test_vote_comment_exceeding_limit_rejected(app, stub_session, seed_questions):
+    [qid] = seed_questions(
+        app,
+        count=1,
+        response_option_json=json.dumps(
+            {"kind": "vote", "allowed_values": ["+1", "-1"], "allow_comment": True}
+        ),
+    )
+    client = app.test_client()
+    response = await client.post(
+        f"/api/question/{qid}/responses",
+        json={"kind": "vote", "value": "+1", "comment": "x" * 2501},
+    )
+    assert response.status_code == 400
+    body = await response.get_json()
+    assert body["error"] == "comment_too_long"
+    assert body["max_length"] == 2500
+
+
+async def test_vote_comment_at_limit_accepted(app, stub_session, seed_questions, captured_emails):
+    [qid] = seed_questions(
+        app,
+        count=1,
+        response_option_json=json.dumps(
+            {"kind": "vote", "allowed_values": ["+1", "-1"], "allow_comment": True}
+        ),
+    )
+    client = app.test_client()
+    response = await client.post(
+        f"/api/question/{qid}/responses",
+        json={"kind": "vote", "value": "+1", "comment": "x" * 2500},
+    )
+    assert response.status_code == 201
+
+
 # ---------------------------------------------------------------------------
 # §7.4 lifecycle ordering
 # ---------------------------------------------------------------------------

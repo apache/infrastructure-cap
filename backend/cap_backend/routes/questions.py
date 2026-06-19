@@ -21,6 +21,7 @@ from cap_backend.auth import (
     current_user,
     user_has_scope,
 )
+from cap_backend.schemas.common import COMMENT_MAX_LENGTH
 from cap_backend.schemas.errors import AuthenticationRequired, ErrorMessage
 from cap_backend.schemas.questions import (
     CreateQuestionRequest,
@@ -652,6 +653,19 @@ async def submit_response(question_id: int) -> Any:
                 {
                     "error": "text_too_long",
                     "max_length": response_option.max_length,
+                }
+            ),
+            400,
+        )
+    # vote / lazy_consensus carry an optional free-form comment, capped at a
+    # fixed length (§8.2). free_text has no comment; its body is the response.
+    submitted_comment = getattr(submitted, "comment", None) if submitted.kind != "free_text" else None
+    if submitted_comment is not None and len(submitted_comment) > COMMENT_MAX_LENGTH:
+        return (
+            jsonify(
+                {
+                    "error": "comment_too_long",
+                    "max_length": COMMENT_MAX_LENGTH,
                 }
             ),
             400,

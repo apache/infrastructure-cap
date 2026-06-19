@@ -6,7 +6,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cap_backend.schemas.common import ASFUserID, IsoTimestamp, QuestionID, RequestID
+from cap_backend.schemas.common import (
+    DESCRIPTION_MAX_LENGTH,
+    TARGET_AUDIENCE_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+    ASFUserID,
+    IsoTimestamp,
+    QuestionID,
+    RequestID,
+)
 from cap_backend.schemas.responses import ResponseOption, SubmittedResponse
 
 
@@ -19,11 +27,11 @@ class Question(BaseModel):
     request_id: RequestID
     project_id: str
 
-    title: str = Field(..., max_length=200)
-    description: str = Field(..., max_length=10_000)
+    title: str = Field(..., max_length=TITLE_MAX_LENGTH)
+    description: str = Field(..., max_length=DESCRIPTION_MAX_LENGTH)
 
     requester: ASFUserID
-    target_audience: str
+    target_audience: str = Field(..., max_length=TARGET_AUDIENCE_MAX_LENGTH)
     created_at: IsoTimestamp
     closes_at: IsoTimestamp
 
@@ -117,9 +125,9 @@ class CreateQuestionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: str
-    title: str = Field(..., max_length=200)
-    description: str = Field(..., max_length=10_000)
-    target_audience: str
+    title: str = Field(..., max_length=TITLE_MAX_LENGTH)
+    description: str = Field(..., max_length=DESCRIPTION_MAX_LENGTH)
+    target_audience: str = Field(..., max_length=TARGET_AUDIENCE_MAX_LENGTH)
     approval_type: Literal[
         "unanimous_approval",
         "majority_approval",
@@ -137,9 +145,9 @@ class EditQuestionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = Field(default=None, max_length=200)
-    description: str | None = Field(default=None, max_length=10_000)
-    target_audience: str | None = None
+    title: str | None = Field(default=None, max_length=TITLE_MAX_LENGTH)
+    description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
+    target_audience: str | None = Field(default=None, max_length=TARGET_AUDIENCE_MAX_LENGTH)
     closes_at: IsoTimestamp | None = None
     is_private: bool | None = None
     response_option: ResponseOption | None = None

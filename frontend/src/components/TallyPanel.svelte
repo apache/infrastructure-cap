@@ -2,6 +2,7 @@
   import type { Question, StoredResponse } from "../lib/types";
   import { previewTally } from "../lib/tally";
   import { pushToast } from "../lib/stores";
+  import ExpandableComment from "./ExpandableComment.svelte";
 
   export let question: Question;
   export let responses: StoredResponse[];
@@ -57,7 +58,11 @@
           {#each tally.vetoes as veto}
             <li>
               <strong>{veto.voter}</strong>:
-              <span class="text-muted">{veto.comment || "(no reason)"}</span>
+              {#if veto.comment}
+                <ExpandableComment text={veto.comment} />
+              {:else}
+                <span class="text-muted">(no reason)</span>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -154,7 +159,11 @@
           {#each tally.objections as obj}
             <li>
               <strong>{obj.voter}</strong>:
-              <span class="text-muted">{obj.comment || "(no comment)"}</span>
+              {#if obj.comment}
+                <ExpandableComment text={obj.comment} />
+              {:else}
+                <span class="text-muted">(no comment)</span>
+              {/if}
             </li>
           {/each}
         </ul>

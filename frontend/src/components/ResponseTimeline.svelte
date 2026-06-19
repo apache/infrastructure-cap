@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { StoredResponse } from "../lib/types";
   import { formatLocal, formatRelative } from "../lib/time";
+  import ExpandableComment from "./ExpandableComment.svelte";
 
   export let responses: StoredResponse[];
 
@@ -72,7 +73,7 @@
               <div class="small mt-1">
                 <code class="code-inline">{summarize(row.r)}</code>
                 {#if row.r.comment}
-                  &mdash; <span class="text-muted">{row.r.comment}</span>
+                  &mdash; <ExpandableComment text={row.r.comment} />
                 {/if}
               </div>
             </div>

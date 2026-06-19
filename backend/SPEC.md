@@ -845,7 +845,7 @@ against the same discriminator:
 class VoteResponse(BaseModel):
     kind: Literal["vote"] = "vote"
     value: Literal["+1", "+0", "-0", "-1"]
-    comment: str | None = None
+    comment: str | None = None  # capped at 2500 chars; see 9.7
 
 class LazyConsensusResponse(BaseModel):
     kind: Literal["lazy_consensus"] = "lazy_consensus"
@@ -886,11 +886,11 @@ class Question(BaseModel):
 
     # Human-facing
     title: str = Field(..., max_length=200)
-    description: str = Field(..., max_length=10_000)
+    description: str = Field(..., max_length=2_500)
 
     # Provenance
     requester: ASFUserID
-    target_audience: str          # e.g. "PMC: Apache SeaPony"
+    target_audience: str = Field(..., max_length=200)  # e.g. "PMC: Apache SeaPony"
     created_at: IsoTimestamp
     closes_at: IsoTimestamp
 
@@ -1385,8 +1385,9 @@ Submit a new response, or amend the caller's previous response.
   flag is needed.
 - **Errors**: `400` (malformed body, missing veto comment, response
   kind incompatible with the question's `response_option.kind`, vote
-  `value` not present in the question's `allowed_values`, or
-  free-text body exceeding `max_length`), `404` (no such question,
+  `value` not present in the question's `allowed_values`, a `comment`
+  exceeding 2500 characters, or a free-text body exceeding
+  `max_length`), `404` (no such question,
   or caller's ACL denies view access for a private question), `409`
   (deadline has passed, or question is not `open` per section 7.4).
 
@@ -1394,11 +1395,12 @@ Submit a new response, or amend the caller's previous response.
 around a discriminated union, the handler reads the raw JSON body and
 calls `pydantic.TypeAdapter(SubmittedResponse).validate_python(...)`
 itself). This keeps all per-question validation (kind compatibility,
-`allowed_values` membership, `max_length` enforcement, the veto
-comment requirement) in one place, immediately after the static
-shape check. The `400` body distinguishes the failure mode via
-`error` (`invalid_body`, `response_kind_mismatch`, `value_not_allowed`,
-`text_too_long`, `missing_veto_comment`) so the UI can surface a
+`allowed_values` membership, `max_length` enforcement, the 2500-char
+comment cap, the veto comment requirement) in one place, immediately
+after the static shape check. The `400` body distinguishes the failure
+mode via `error` (`invalid_body`, `response_kind_mismatch`,
+`value_not_allowed`, `text_too_long`, `comment_too_long`,
+`missing_veto_comment`) so the UI can surface a
 specific message.
 
 ### 9.8 `GET /api/resolution/{question_id}`

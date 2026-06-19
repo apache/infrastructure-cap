@@ -491,9 +491,9 @@ A single component used by `NewQuestion.svelte` and
 ```
 +----------------------------------------------------+
 | Title           [ text input, max 200 chars     ]  |
-| Description     [ textarea, max 10,000 chars    ]  |
+| Description     [ textarea, max 2,500 chars     ]  |
 | Project         [ <ProjectPicker> ]                |
-| Target audience [ text input ]                     |
+| Target audience [ text input, max 200 chars ]      |
 | Approval type   [ <ApprovalTypeSelector> ]         |
 | Closes at       [ datetime-local input ]           |
 | Is binding      [ checkbox, disabled in edit mode ]|
@@ -525,9 +525,9 @@ Client-side validation mirrors the backend's Pydantic constraints
 exactly:
 
 - `title`: non-empty, length <= 200
-- `description`: non-empty, length <= 10000
+- `description`: non-empty, length <= 2500
 - `closes_at`: strictly in the future (server enforces this also)
-- `target_audience`: non-empty
+- `target_audience`: non-empty, length <= 200
 - `response_option`: shape-valid per its `kind`
 
 The form does NOT pre-validate request_id; it generates one on the
@@ -577,12 +577,15 @@ prop and renders a form whose shape depends on
 
 - **`vote`**: radio buttons over `allowed_values`. If
   `allow_comment`, a `<textarea>` labeled "Comment (optional, but
-  required for a `-1` veto on unanimous approval)" appears beneath.
-  The form refuses to submit a `-1` on a `unanimous_approval`
-  question with `viewer_is_binding=true` unless the comment is
-  non-empty (matching the 400 the backend would otherwise return).
+  required for a `-1` veto on unanimous approval)" appears beneath,
+  capped at 2500 characters with a live counter (matching the
+  backend's `comment_too_long` limit). The form refuses to submit a
+  `-1` on a `unanimous_approval` question with `viewer_is_binding=true`
+  unless the comment is non-empty (matching the 400 the backend would
+  otherwise return).
 - **`lazy_consensus`**: a single "I object" checkbox, plus an
-  optional comment if `allow_comment`. Submitting with the box
+  optional comment if `allow_comment` (same 2500-char cap and
+  counter as the vote comment). Submitting with the box
   unchecked is functionally a no-op response (`objection=false`),
   which the UI explains under the box: "Silence is assent. Submit
   with this box checked only if you object."
@@ -644,7 +647,9 @@ array, ordered oldest first (matching the backend's order in
 - A binding/non-binding chip
 - A veto chip if `is_veto`
 - The submitted value (e.g. `+1`, `Objection`, free text excerpt)
-- The comment (if any), expandable
+- The comment (if any). A comment longer than 500 characters or more
+  than 6 lines is collapsed with a trailing ellipsis and a "Show more"
+  toggle that expands it in place (see `<ExpandableComment>`).
 - The submission timestamp in the viewer's local time, plus the
   ISO-UTC timestamp as a tooltip
 
@@ -802,8 +807,8 @@ the backend spec) and the HTML element used to render it.
 | `request_id`      | `str` (RequestID)                                      | Hidden, generated client-side as a ULID       |
 | `project_id`      | `str` (must be in `session.projects`)                  | `<ProjectPicker>` (dropdown of projects)      |
 | `title`           | `str`, max 200                                         | `<input type="text" maxlength="200">`         |
-| `description`     | `str`, max 10000                                       | `<textarea maxlength="10000" rows="8">`       |
-| `target_audience` | `str`                                                  | `<input type="text">`                         |
+| `description`     | `str`, max 2500                                        | `<textarea maxlength="2500" rows="8">`        |
+| `target_audience` | `str`, max 200                                         | `<input type="text" maxlength="200">` + explainer |
 | `approval_type`   | `Literal["unanimous_approval","majority_approval","simple_majority","lazy_consensus"]` | `<ApprovalTypeSelector>` (radio cards) |
 | `is_binding`      | `bool`                                                 | `<input type="checkbox">`                     |
 | `is_private`      | `bool` (only enabled if project in `session.committees`) | `<input type="checkbox">`                   |
@@ -838,8 +843,8 @@ empty body which the backend correctly handles as a no-op
 
 | `kind`             | UI element                                                            |
 |--------------------|------------------------------------------------------------------------|
-| `vote`             | Radio group over `allowed_values`; optional `<textarea>` comment       |
-| `lazy_consensus`   | Single "I object" checkbox; optional `<textarea>` comment              |
+| `vote`             | Radio group over `allowed_values`; optional `<textarea>` comment (max 2500, counter) |
+| `lazy_consensus`   | Single "I object" checkbox; optional `<textarea>` comment (max 2500, counter)        |
 | `free_text`        | Single `<textarea>` bounded by `max_length` with a character counter   |
 
 The submit handler:

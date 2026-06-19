@@ -12,6 +12,7 @@
     RESPONSE_SUBMISSION_ENABLED,
   } from "../lib/api";
   import { pushToast } from "../lib/stores";
+  import { COMMENT_MAX_LENGTH } from "../lib/limits";
   import ErrorAlert from "./ErrorAlert.svelte";
 
   export let question: Question;
@@ -43,8 +44,22 @@
     voteValue === "-1" &&
     question.viewer_is_binding;
 
+  // Whether this question accepts a comment at all (vote / lazy_consensus
+  // with allow_comment). free_text carries its own bounded body instead.
+  $: commentEnabled =
+    (question.response_option.kind === "vote" ||
+      question.response_option.kind === "lazy_consensus") &&
+    question.response_option.allow_comment;
+  $: commentTooLong = comment.length > COMMENT_MAX_LENGTH;
+
   function buildBody(): SubmittedResponse | null {
     const ro = question.response_option;
+    if (ro.kind === "vote" || ro.kind === "lazy_consensus") {
+      if (ro.allow_comment && commentTooLong) {
+        commentError = `Comment must be ${COMMENT_MAX_LENGTH.toLocaleString()} characters or fewer.`;
+        return null;
+      }
+    }
     if (ro.kind === "vote") {
       if (requiresVetoComment && !comment.trim()) {
         commentError =
@@ -59,6 +74,7 @@
       };
     }
     if (ro.kind === "lazy_consensus") {
+      commentError = null;
       return {
         kind: "lazy_consensus",
         objection,
@@ -95,7 +111,10 @@
     }
   }
 
-  $: submitDisabled = submitting || !RESPONSE_SUBMISSION_ENABLED;
+  $: submitDisabled =
+    submitting ||
+    !RESPONSE_SUBMISSION_ENABLED ||
+    (commentEnabled && commentTooLong);
   $: submitLabel = priorResponse ? "Update response" : "Submit response";
 </script>
 
@@ -141,13 +160,20 @@
           <textarea
             id="resp-comment"
             class="form-control"
-            class:is-invalid={commentError}
+            class:is-invalid={commentError || commentTooLong}
             rows="4"
+            maxlength={COMMENT_MAX_LENGTH}
             bind:value={comment}
           ></textarea>
           {#if commentError}
             <div class="invalid-feedback">{commentError}</div>
           {/if}
+          <div
+            class="form-text text-end"
+            class:text-danger={commentTooLong}
+          >
+            {comment.length.toLocaleString()} / {COMMENT_MAX_LENGTH.toLocaleString()}
+          </div>
         </div>
       {/if}
     {:else if question.response_option.kind === "lazy_consensus"}
@@ -173,9 +199,17 @@
           <textarea
             id="resp-lc-comment"
             class="form-control"
+            class:is-invalid={commentTooLong}
             rows="4"
+            maxlength={COMMENT_MAX_LENGTH}
             bind:value={comment}
           ></textarea>
+          <div
+            class="form-text text-end"
+            class:text-danger={commentTooLong}
+          >
+            {comment.length.toLocaleString()} / {COMMENT_MAX_LENGTH.toLocaleString()}
+          </div>
         </div>
       {/if}
     {:else if question.response_option.kind === "free_text"}

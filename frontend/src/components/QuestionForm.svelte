@@ -11,6 +11,11 @@
     UserSession,
   } from "../lib/types";
   import { api, ApiError } from "../lib/api";
+  import {
+    TITLE_MAX_LENGTH,
+    TARGET_AUDIENCE_MAX_LENGTH,
+    DESCRIPTION_MAX_LENGTH,
+  } from "../lib/limits";
   import { invalidateQuestion, pushToast } from "../lib/stores";
   import { isoToLocalInput, localInputToIso } from "../lib/time";
   import ProjectPicker from "./ProjectPicker.svelte";
@@ -67,12 +72,15 @@
 
   function validate(): string | null {
     if (!title.trim()) return "Title is required.";
-    if (title.length > 200) return "Title must be 200 characters or fewer.";
+    if (title.length > TITLE_MAX_LENGTH)
+      return `Title must be ${TITLE_MAX_LENGTH.toLocaleString()} characters or fewer.`;
     if (!description.trim()) return "Description is required.";
-    if (description.length > 10000)
-      return "Description must be 10,000 characters or fewer.";
+    if (description.length > DESCRIPTION_MAX_LENGTH)
+      return `Description must be ${DESCRIPTION_MAX_LENGTH.toLocaleString()} characters or fewer.`;
     if (!projectId) return "Choose a project.";
     if (!targetAudience.trim()) return "Target audience is required.";
+    if (targetAudience.length > TARGET_AUDIENCE_MAX_LENGTH)
+      return `Target audience must be ${TARGET_AUDIENCE_MAX_LENGTH.toLocaleString()} characters or fewer.`;
     if (!closesLocal) return "Set a deadline.";
     const closesIso = localInputToIso(closesLocal);
     if (mode === "create" && Date.parse(closesIso) <= Date.now())
@@ -161,11 +169,13 @@
           id="q-title"
           class="form-control"
           type="text"
-          maxlength="200"
+          maxlength={TITLE_MAX_LENGTH}
           bind:value={title}
           required
         />
-        <div class="form-text">{title.length} / 200</div>
+        <div class="form-text">
+          {title.length.toLocaleString()} / {TITLE_MAX_LENGTH.toLocaleString()}
+        </div>
       </div>
 
       <div class="col-12">
@@ -174,11 +184,13 @@
           id="q-desc"
           class="form-control"
           rows="6"
-          maxlength="10000"
+          maxlength={DESCRIPTION_MAX_LENGTH}
           bind:value={description}
           required
         ></textarea>
-        <div class="form-text">{description.length} / 10,000</div>
+        <div class="form-text">
+          {description.length.toLocaleString()} / {DESCRIPTION_MAX_LENGTH.toLocaleString()}
+        </div>
       </div>
 
       <div class="col-md-6">
@@ -200,9 +212,17 @@
           id="q-audience"
           class="form-control"
           type="text"
+          maxlength={TARGET_AUDIENCE_MAX_LENGTH}
           bind:value={targetAudience}
           required
         />
+        <div class="form-text">
+          This is a description of the intended audience for this vote, so
+          that respondents can understand the context of the question.
+        </div>
+        <div class="form-text">
+          {targetAudience.length.toLocaleString()} / {TARGET_AUDIENCE_MAX_LENGTH.toLocaleString()}
+        </div>
       </div>
 
       <div class="col-md-6">
