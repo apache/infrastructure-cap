@@ -671,6 +671,191 @@ async def test_resolve_simple_majority_no_votes_is_insufficient(app, stub_sessio
 
 
 # ---------------------------------------------------------------------------
+# GET /resolution/{id}  (permalink endpoint; SPEC §9.8)
+# ---------------------------------------------------------------------------
+
+
+async def _resolve(client, qid):
+    """Drive a question through POST /resolve and return its outcome."""
+    response = await client.post(f"/api/question/{qid}/resolve")
+    body = await response.get_json()
+    return body["outcome"]
+
+
+async def test_resolution_approved_returns_200_record(
+    app, stub_session, seed_questions, seed_response, captured_emails
+):
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="majority_approval",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="erin", value="+1", is_binding=True)
+    seed_response(app, question_id=qid, voter="frank", value="+1", is_binding=True)
+    client = app.test_client()
+    assert await _resolve(client, qid) == "approved"
+
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "public, max-age=86400, immutable"
+    body = await response.get_json()
+    assert body["question_id"] == qid
+    assert body["outcome"] == "approved"
+    assert body["resolved_at"] is not None
+    assert body["permalink"].endswith(f"/api/resolution/{qid}")
+    assert body["question"]["status"] == "resolved"
+    # tally mirrors the question.resolve audit row (§9.8).
+    assert body["tally"]["approval_type"] == "majority_approval"
+    assert body["tally"]["binding_counts"]["+1"] == 3
+    # voters carries the final response per voter.
+    assert {v["voter"] for v in body["voters"]} == {"dave", "erin", "frank"}
+
+
+async def test_resolution_insufficient_votes_returns_424(
+    app, stub_session, seed_questions, seed_response
+):
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="majority_approval",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    client = app.test_client()
+    assert await _resolve(client, qid) == "insufficient_votes"
+
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 424
+    assert response.headers["Cache-Control"] == "public, max-age=86400, immutable"
+    body = await response.get_json()
+    assert body["outcome"] == "insufficient_votes"
+    assert body["tally"] is not None
+
+
+async def test_resolution_vetoed_surfaces_veto_rows(
+    app, stub_session, seed_questions, seed_response
+):
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="alice",
+        approval_type="unanimous_approval",
+        closes_at=_past_iso(),
+    )
+    seed_response(app, question_id=qid, voter="dave", value="+1", is_binding=True)
+    seed_response(
+        app,
+        question_id=qid,
+        voter="erin",
+        value="-1",
+        comment="security hole",
+        is_binding=True,
+        is_veto=True,
+    )
+    client = app.test_client()
+    assert await _resolve(client, qid) == "vetoed"
+
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 424
+    body = await response.get_json()
+    assert body["outcome"] == "vetoed"
+    # The veto row (with its stated reason) is visible among the voters.
+    veto = next(v for v in body["voters"] if v["voter"] == "erin")
+    assert veto["is_veto"] is True
+    assert veto["comment"] == "security hole"
+
+
+async def test_resolution_withdrawn_returns_424_with_null_tally(
+    app, stub_session, seed_questions, captured_emails
+):
+    [qid] = seed_questions(app, count=1, requester="alice")
+    client = app.test_client()
+    delete = await client.delete(f"/api/question/{qid}")
+    assert delete.status_code == 204
+
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 424
+    assert response.headers["Cache-Control"] == "public, max-age=86400, immutable"
+    body = await response.get_json()
+    assert body["outcome"] == "withdrawn"
+    # A withdrawn question never resolved, so it has no tally (§9.8).
+    assert body["tally"] is None
+    assert body["permalink"].endswith(f"/api/resolution/{qid}")
+
+
+async def test_resolution_open_returns_204(app, stub_session, seed_questions):
+    [qid] = seed_questions(app, count=1, requester="alice")
+    client = app.test_client()
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 204
+    assert response.headers["Cache-Control"] == "no-store"
+    assert await response.get_data() == b""
+
+
+async def test_resolution_unknown_id_returns_404(app, stub_session):
+    client = app.test_client()
+    response = await client.get("/api/resolution/999999")
+    assert response.status_code == 404
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+async def test_resolution_private_question_hidden_as_404(app, as_user, seed_questions):
+    """A caller without view access gets 404, never a 403 (§7.5 / §9.8)."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="carol",
+        project_id="secretproj",
+        is_private=1,
+        status="resolved",
+        outcome="approved",
+        permalink="/api/resolution/1",
+    )
+    as_user(AuthenticatedUser(uid="mallory", committees=("otherproj",)))
+    client = app.test_client()
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 404
+
+
+async def test_resolution_public_question_readable_anonymously(app, as_user, seed_questions):
+    """A public question's resolution is a shareable proof of outcome (§9.8)."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        is_private=0,
+        status="resolved",
+        outcome="approved",
+        permalink="/api/resolution/1",
+    )
+    as_user(None)
+    client = app.test_client()
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 200
+    body = await response.get_json()
+    assert body["outcome"] == "approved"
+
+
+async def test_resolution_private_question_hidden_from_anonymous(app, as_user, seed_questions):
+    """An anonymous caller cannot see a private resolution; it collapses to 404."""
+    [qid] = seed_questions(
+        app,
+        count=1,
+        is_private=1,
+        status="resolved",
+        outcome="approved",
+        permalink="/api/resolution/1",
+    )
+    as_user(None)
+    client = app.test_client()
+    response = await client.get(f"/api/resolution/{qid}")
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # notify module unit tests
 # ---------------------------------------------------------------------------
 

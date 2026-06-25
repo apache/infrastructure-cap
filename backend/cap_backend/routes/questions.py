@@ -1,4 +1,4 @@
-"""Question endpoints. See SPEC §9.1 through §9.6."""
+"""Question endpoints. See SPEC §9.1 through §9.8."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from cap_backend.schemas.questions import (
     PublicListResponse,
     Question,
     QuestionDetail,
+    ResolutionRecord,
     StoredResponse,
 )
 from cap_backend.schemas.responses import SubmittedResponse
@@ -760,6 +761,91 @@ async def submit_response(question_id: int) -> Any:
         ),
     )
     return stored, 201, {"Location": f"/api/question/{question_id}/responses/{response_id}"}
+
+
+# ---------------------------------------------------------------------------
+# GET /resolution/<id>  (permalink endpoint; SPEC §9.8)
+# ---------------------------------------------------------------------------
+
+
+@questions_bp.get("/resolution/<int:question_id>")
+@validate_response(ResolutionRecord, 200)
+@validate_response(ResolutionRecord, 424)
+@document_response(AuthenticationRequired, 401)
+@document_response(ErrorMessage, 404)
+async def get_resolution(question_id: int) -> Any:
+    """Permalink endpoint: verify the outcome of a CAP question.
+
+    See SPEC §9.8. The status code encodes the verdict:
+
+    - ``200`` resolved and ``approved``
+    - ``424`` reached a terminal state but not approved (``vetoed``,
+      ``insufficient_votes``, or ``withdrawn``)
+    - ``204`` exists and is viewable, but still ``open``
+    - ``404`` no such id, or the private-question ACL denies view access
+      (indistinguishable on the wire, deliberately)
+
+    Resolution outcomes are immutable once written, so ``200`` and ``424``
+    are served ``immutable`` for a day; ``204`` and ``404`` are ``no-store``.
+
+    Resolutions of *public* questions are readable without authentication
+    (a permalink is meant to be shareable as proof of outcome). Anonymous
+    callers are treated as a viewer with no committees, so resolutions of
+    private questions collapse into a 404 just like ``GET /api/question``.
+    """
+    user = await current_user()
+    viewer = user if user is not None else _ANONYMOUS_VIEWER
+    if not user_has_scope(viewer, PUBLIC_SCOPE):
+        return _insufficient_scope(PUBLIC_SCOPE)
+
+    no_store = {"Cache-Control": "no-store"}
+
+    db = current_app.extensions["cap_db"]
+    row = dao.fetch_question_row(db.conn, question_id)
+    if row is None:
+        return jsonify({"error": "not_found"}), 404, no_store
+
+    question = dao.row_to_question(row, viewer=viewer)
+    if not can_view_question(viewer, question):
+        # ACL denial collapses into 404 so private questions stay hidden (§7.5).
+        return jsonify({"error": "not_found"}), 404, no_store
+
+    # Still open: viewable, but not yet resolved or removed.
+    if row["status"] == "open":
+        return Response("", status=204, headers=no_store)
+
+    # Terminal state. `updated_at` was stamped the instant `status` left
+    # 'open' (§7.4) and nothing touches a terminal question afterwards, so it
+    # is the resolution time for both resolved and withdrawn questions.
+    resolved_at = dao.parse_iso(row["updated_at"])
+
+    # `tally` mirrors the question.resolve audit row (§9.8). Withdrawn
+    # questions never resolved, so they have no resolve row and `tally` is null.
+    resolve_details = audit.fetch_resolution_details(db.conn, question_id)
+    tally_payload = resolve_details.get("tally") if resolve_details else None
+
+    # `voters`: the final (latest) response per voter. For a vetoed question
+    # the latest-per-voter set surfaces the veto rows so the recipient can see
+    # who vetoed and read their stated reason (§9.8).
+    response_rows = dao.fetch_all_response_rows(db.conn, question_id)
+    latest = dao.latest_response_per_voter(response_rows)
+    voters = [
+        dao.row_to_stored_response(r)
+        for r in sorted(latest.values(), key=lambda r: (r["created_at"], r["response_id"]))
+    ]
+
+    record = ResolutionRecord(
+        question_id=question_id,
+        outcome=question.outcome,  # non-null in any terminal state (§7.1 CHECK)
+        resolved_at=resolved_at,
+        permalink=question.permalink or _permalink_for(question_id),
+        question=question,
+        tally=tally_payload,
+        voters=voters,
+    )
+
+    status = 200 if question.outcome == "approved" else 424
+    return record, status, {"Cache-Control": "public, max-age=86400, immutable"}
 
 
 # Re-export the AuthenticatedUser symbol so other modules importing from this

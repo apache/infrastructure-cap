@@ -21,6 +21,8 @@ def test_public_paths_match_exactly():
     assert is_public_path("/api/docs")
     assert is_public_path("/api/auth")
     assert is_public_path("/api/auth/login")
+    # Resolution permalinks are public-readable (ACL-gated at the handler).
+    assert is_public_path("/api/resolution/4217")
     assert not is_public_path("/api")
     assert not is_public_path("/api/list")
     assert not is_public_path("/auth")

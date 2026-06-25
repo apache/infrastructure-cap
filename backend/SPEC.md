@@ -39,6 +39,8 @@ covers:
      tally, and issue its permalink.
    - `POST /api/question/{id}/responses` — submit a new response, or
      amend the caller's previous response.
+   - `GET /api/resolution/{id}` — the permalink record verifying a
+     resolved question's outcome (section 9.8).
    - `GET /api/token` — issue a personal-access bearer token for the
      currently authenticated user (scoped to `ask`, expiring after 24
      hours, capped at five live tokens per ASF UID).
@@ -53,10 +55,9 @@ covers:
    route to `private@{project}.apache.org`; public questions route to
    `dev@{project}.apache.org`.
 
-The remaining CAP workflow endpoint (`GET /api/resolution/{id}`, the
-permalink endpoint in section 9.8) is specified but not yet
-implemented. The Pydantic schema layer and audit-log discipline
-already accommodate it.
+The permalink endpoint (`GET /api/resolution/{id}`, section 9.8) is
+implemented in `cap_backend/routes/questions.py`; it mirrors the tally
+recorded in the `question.resolve` audit row rather than recomputing it.
 
 ## 2. Technology Stack
 
@@ -1409,12 +1410,18 @@ The permalink endpoint. This is the URL stored in
 `question.permalink` once a question resolves, and the canonical
 way for external parties to verify the outcome of a CAP question.
 
-- **Auth**: required (the global hook applies; permalinks are not
-  public).
+- **Auth**: **not required for resolutions of public questions.** A
+  permalink is meant to be shareable as proof of an outcome, so the
+  path is exempt from the global authentication hook (like
+  `GET /api/question/{question_id}`). Resolutions of *private*
+  questions are still gated by the ACL below; an unauthenticated (or
+  otherwise unentitled) caller receives `404`, never the record.
 - **Path param**: `question_id` is an integer.
-- **ACL**: subject to `auth.can_view_question(...)` (section 7.5).
-  ACL denial collapses into `404 Not Found`, exactly like
-  `GET /api/question/{question_id}`.
+- **ACL**: subject to `auth.can_view_question(...)` (section 7.5),
+  with an unauthenticated caller treated as a viewer with no
+  committees and no root flag. ACL denial collapses into `404 Not
+  Found`, exactly like `GET /api/question/{question_id}`, so public
+  resolutions are returned to anyone while private ones stay hidden.
 - **Status codes**:
   - **`200 OK`** — the question resolved with
     `outcome == 'approved'`. Body is a `ResolutionRecord`:

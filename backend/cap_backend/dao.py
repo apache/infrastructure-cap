@@ -21,7 +21,7 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _parse_iso(value: str) -> datetime:
+def parse_iso(value: str) -> datetime:
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
     parsed = datetime.fromisoformat(value)
@@ -41,8 +41,8 @@ def row_to_question(
     ``viewer_is_binding`` and ``time_remaining_seconds`` are server-computed
     per request (SPEC §8.3), so this helper requires the requesting user.
     """
-    closes_at = _parse_iso(row["closes_at"])
-    created_at = _parse_iso(row["created_at"])
+    closes_at = parse_iso(row["closes_at"])
+    created_at = parse_iso(row["created_at"])
     if now is None:
         now = datetime.now(UTC)
 
@@ -87,7 +87,7 @@ def row_to_stored_response(row: sqlite3.Row) -> StoredResponse:
             "comment": row["comment"],
             "is_binding": bool(row["is_binding"]),
             "is_veto": bool(row["is_veto"]),
-            "created_at": _parse_iso(row["created_at"]),
+            "created_at": parse_iso(row["created_at"]),
         }
     )
 

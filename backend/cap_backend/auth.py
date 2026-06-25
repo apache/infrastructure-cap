@@ -16,12 +16,20 @@ if TYPE_CHECKING:
 # handshake); /api/api is the public OpenAPI document; /api/docs is the
 # Swagger UI page that renders it; /api/publist is the public read-only
 # feed of non-private questions (SPEC §9.13). SPEC section 6, point 1.
+#
+# /api/question and /api/resolution are exempt from the *global* hook but
+# remain ACL-gated at the handler: read handlers treat an unauthenticated
+# caller as a viewer with no committees, so public rows are returned and
+# private rows collapse to 404 (SPEC §7.5, §9.3, §9.8); state-changing
+# handlers under /api/question re-check authentication themselves and
+# return their own 401.
 PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/api",
         "/api/docs",
         "/api/publist",
         "/api/question",
+        "/api/resolution",
     }
 )
 OAUTH_PATH_PREFIX = "/api/auth"

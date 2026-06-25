@@ -56,3 +56,28 @@ def record(
     if audit_id is None:
         raise RuntimeError("audit_log insert did not return a row id")
     return audit_id
+
+
+def fetch_resolution_details(conn: sqlite3.Connection, question_id: int) -> dict[str, Any] | None:
+    """Return the ``details_json`` of the latest ``question.resolve`` row.
+
+    ``GET /api/resolution/{id}`` mirrors the tally recorded at resolution
+    time (SPEC §9.8) rather than recomputing it, so it reads the resolve
+    audit row written by ``POST /api/question/{id}/resolve``. Returns
+    ``None`` when the question has no resolve row (e.g. it was withdrawn
+    rather than resolved), which the caller maps to a ``null`` tally.
+    """
+    row = conn.execute(
+        """
+        SELECT details_json
+          FROM audit_log
+         WHERE question_id = ? AND action = 'question.resolve'
+         ORDER BY audit_id DESC
+         LIMIT 1
+        """,
+        (question_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    parsed = json.loads(row["details_json"])
+    return parsed if isinstance(parsed, dict) else None
