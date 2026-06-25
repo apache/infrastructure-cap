@@ -88,6 +88,7 @@ def _construct_app(name: str, settings: Settings) -> Any:
     try:
         import asfquart  # noqa: PLC0415
         import asfquart.generics
+
         asfquart.generics.OAUTH_URL_INIT = "https://oauth.apache.org/auth?state=%s&redirect_uri=%s"
         asfquart.generics.OAUTH_URL_CALLBACK = "https://oauth.apache.org/token?code=%s"
         return asfquart.construct(
