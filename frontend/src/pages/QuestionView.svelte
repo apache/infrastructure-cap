@@ -14,7 +14,7 @@
   } from "../lib/api";
   import { cacheQuestion, invalidateQuestion, pushToast, session } from "../lib/stores";
   import { redirectToLogin } from "../lib/auth";
-  import { formatLocal } from "../lib/time";
+  import { formatLocal, secondsRemaining } from "../lib/time";
   import type {
     QuestionDetail,
     StoredResponse,
@@ -28,6 +28,13 @@
   let notFound = false;
   let errorMsg: string | null = null;
   let id: number;
+
+  // Tracks whether the closing deadline has elapsed. Backend reserves
+  // early resolution (before closes_at) for root, so a non-root
+  // requester resolving too early gets a 403 deadline_in_future. We
+  // flip this on load and again when CountdownBadge fires its `closed`
+  // event, so the Resolve button only enables once it can succeed.
+  let deadlinePassed = false;
 
   // The current viewer if logged in, or null when the SPA is in
   // anonymous (read-only) mode. Mirrors the same convention used by
@@ -46,6 +53,7 @@
         return;
       }
       detail = await api.getQuestion(id);
+      deadlinePassed = secondsRemaining(detail.question.closes_at) <= 0;
       cacheQuestion(detail);
     } catch (err) {
       if (err instanceof NotFoundError) {
@@ -72,6 +80,14 @@
       (d.question.requester === user.uid || user.isRoot)
     );
   }
+
+  // Resolve can only succeed once the deadline has passed (or for root,
+  // who may resolve early). Surfacing it before then just yields a 403.
+  $: resolvable =
+    !!detail &&
+    !!viewer &&
+    canEdit(detail, viewer) &&
+    (viewer.isRoot || deadlinePassed);
 
   function viewerPrior(
     d: QuestionDetail,
@@ -170,6 +186,7 @@
           <CountdownBadge
             closesAt={detail.question.closes_at}
             initialSeconds={detail.question.time_remaining_seconds}
+            on:closed={() => (deadlinePassed = true)}
           />
         {/if}
         <span class="badge bg-light text-muted border">
@@ -195,6 +212,10 @@
           type="button"
           class="btn btn-outline-success btn-sm me-1"
           on:click={onResolve}
+          disabled={!resolvable}
+          title={resolvable
+            ? "Resolve this question and compute the tally"
+            : "Resolution is available once the closing deadline has passed"}
         >
           <i class="fa-solid fa-flag-checkered me-1"></i>Resolve
         </button>
