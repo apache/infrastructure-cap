@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import type {
     Question,
     StoredResponse,
@@ -13,6 +13,7 @@
   } from "../lib/api";
   import { pushToast } from "../lib/stores";
   import { COMMENT_MAX_LENGTH } from "../lib/limits";
+  import { secondsRemaining } from "../lib/time";
   import ErrorAlert from "./ErrorAlert.svelte";
 
   export let question: Question;
@@ -37,6 +38,28 @@
   let submitting = false;
   let errorMsg: string | null = null;
   let commentError: string | null = null;
+
+  // The backend rejects responses once closes_at passes (409
+  // deadline_passed). The question stays "open" until it is resolved, so
+  // this form remains mounted past the deadline; lock it down instead of
+  // letting the user submit into a guaranteed error. The timer flips
+  // `expired` live if the deadline elapses while the form is open.
+  let expired = secondsRemaining(question.closes_at) <= 0;
+  let expiryTimer: ReturnType<typeof setInterval> | null = null;
+
+  onMount(() => {
+    if (!expired) {
+      expiryTimer = setInterval(() => {
+        if (secondsRemaining(question.closes_at) <= 0) {
+          expired = true;
+          if (expiryTimer) clearInterval(expiryTimer);
+        }
+      }, 1000);
+    }
+  });
+  onDestroy(() => {
+    if (expiryTimer) clearInterval(expiryTimer);
+  });
 
   $: requiresVetoComment =
     question.approval_type === "unanimous_approval" &&
@@ -89,6 +112,10 @@
       errorMsg = "Response submission is not yet enabled on this server.";
       return;
     }
+    if (expired) {
+      errorMsg = "Voting has closed; responses are no longer accepted.";
+      return;
+    }
     const body = buildBody();
     if (!body) return;
     submitting = true;
@@ -114,6 +141,7 @@
   $: submitDisabled =
     submitting ||
     !RESPONSE_SUBMISSION_ENABLED ||
+    expired ||
     (commentEnabled && commentTooLong);
   $: submitLabel = priorResponse ? "Update response" : "Submit response";
 </script>
@@ -129,7 +157,14 @@
     {#if errorMsg}
       <ErrorAlert title="Could not submit response" message={errorMsg} />
     {/if}
+    {#if expired}
+      <div class="alert alert-secondary py-2 small d-flex align-items-center" role="alert">
+        <i class="fa-regular fa-clock me-2"></i>
+        Voting has closed; responses are no longer accepted.
+      </div>
+    {/if}
 
+    <fieldset disabled={expired} class="border-0 p-0 m-0">
     {#if question.response_option.kind === "vote"}
       <fieldset class="mb-3">
         <legend class="form-label">Your vote</legend>
@@ -227,6 +262,7 @@
         </div>
       </div>
     {/if}
+    </fieldset>
   </div>
   <div class="card-footer bg-white d-flex justify-content-end">
     <button class="btn btn-primary" type="submit" disabled={submitDisabled}>
