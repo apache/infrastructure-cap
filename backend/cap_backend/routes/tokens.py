@@ -7,6 +7,7 @@ from typing import Any
 from quart import Blueprint, current_app, jsonify
 from quart_schema import document_response, validate_response
 
+from cap_backend import audit
 from cap_backend.auth import ROLE_ISSUE_SCOPE, current_user
 from cap_backend.schemas.errors import AuthenticationRequired, ErrorMessage
 from cap_backend.schemas.tokens import TokenIssued
@@ -78,6 +79,31 @@ async def issue_token() -> Any:
             is_root=user.is_root,
             fullname=user.fullname,
         )
+
+    # Record the issuance in the audit log (§7.3). The plaintext token is
+    # never logged; only its metadata. There is no paired SQLite write (the
+    # token lives in the in-memory store), so this audit insert stands alone
+    # in its own transaction.
+    db = current_app.extensions["cap_db"]
+    async with db.write_lock:
+        try:
+            db.conn.execute("BEGIN IMMEDIATE")
+            audit.record(
+                db.conn,
+                action="token.issue",
+                actor=user.uid,
+                details={
+                    "uid": info.uid,
+                    "scopes": list(info.scopes),
+                    "role_account": info.role_account,
+                    "expires_at": info.expires_at.isoformat(),
+                },
+            )
+            db.conn.execute("COMMIT")
+        except Exception:
+            db.conn.execute("ROLLBACK")
+            raise
+
     return (
         TokenIssued(
             token=info.token,

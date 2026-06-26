@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -127,6 +128,12 @@ def test_authenticated_user_oauth_session_has_no_scope_restriction():
 # ---------------------------------------------------------------------------
 
 
+def _token_audit_rows(app) -> list[dict]:
+    db = app.extensions["cap_db"]
+    cur = db.conn.execute("SELECT * FROM audit_log WHERE action = 'token.issue' ORDER BY audit_id")
+    return [dict(r) for r in cur.fetchall()]
+
+
 async def test_post_token_issues_token_for_oauth_session(app, stub_session):
     client = app.test_client()
     response = await client.get("/api/token")
@@ -138,6 +145,27 @@ async def test_post_token_issues_token_for_oauth_session(app, stub_session):
     # Now look the token up in the in-memory store and confirm it was registered.
     store = app.extensions["cap_tokens"]
     assert store.lookup(body["token"]) is not None
+
+
+async def test_post_token_writes_audit_row(app, stub_session):
+    """Issuing a token records a token.issue audit row, sans plaintext (§7.3)."""
+    client = app.test_client()
+    response = await client.get("/api/token")
+    body = await response.get_json()
+
+    rows = _token_audit_rows(app)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["actor"] == "alice"
+    assert row["question_id"] is None
+    assert row["response_id"] is None
+    details = json.loads(row["details_json"])
+    assert details["uid"] == "alice"
+    assert details["scopes"] == ["ask"]
+    assert details["role_account"] is False
+    assert "expires_at" in details
+    # The plaintext token must never appear in the audit log.
+    assert body["token"] not in row["details_json"]
 
 
 async def test_post_token_unauthenticated_returns_401(app):
@@ -459,6 +487,14 @@ async def test_permanent_credential_can_issue_cross_committee_token(app, role_se
     assert info.role_account is True
     assert info.committees == ()
     assert info.expires_at - info.created_at == TOKEN_TTL
+
+    # The issuance is audited as a role-account token.issue (§7.3).
+    rows = _token_audit_rows(app)
+    assert len(rows) == 1
+    assert rows[0]["actor"] == "tooling"
+    details = json.loads(rows[0]["details_json"])
+    assert details["uid"] == "tooling"
+    assert details["role_account"] is True
 
 
 async def test_permanent_credential_cannot_create_directly(app, role_session):

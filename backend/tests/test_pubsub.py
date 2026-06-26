@@ -456,6 +456,27 @@ async def test_publisher_skips_unknown_audit_action(app, stub_session, seed_ques
     assert read_cursor(db.conn) == 1
 
 
+async def test_publisher_skips_token_issue_action(app, stub_session, tmp_db_path):
+    """token.issue rows are audited but never republished to pubsub (§10.1)."""
+    db = app.extensions["cap_db"]
+    db.conn.execute("BEGIN IMMEDIATE")
+    audit.record(
+        db.conn,
+        action="token.issue",
+        actor="tooling",
+        details={"uid": "tooling", "scopes": ["ask"], "role_account": True},
+    )
+    db.conn.execute("COMMIT")
+
+    sender = FakeSender()
+    publisher = PubsubPublisher(db, _settings_with(tmp_db_path), send=sender)
+    await _process_until_done(publisher)
+
+    # Nothing published, but the cursor advanced past the token.issue row.
+    assert sender.calls == []
+    assert read_cursor(db.conn) == 1
+
+
 async def test_publisher_treats_send_exception_as_transient(
     app, stub_session, seed_questions, tmp_db_path
 ):

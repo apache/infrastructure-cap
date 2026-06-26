@@ -18,6 +18,11 @@ AuditAction = Literal[
     "question.respond",
     "question.resolve",
     "question.remove",
+    # Not a question action: ``question_id`` and ``response_id`` are NULL and
+    # ``details_json`` carries the issued token's metadata (never the token
+    # itself). Skipped by the pubsub publisher, which only republishes
+    # question events (§10.1).
+    "token.issue",
 ]
 
 
