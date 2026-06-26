@@ -18,6 +18,7 @@
   } from "../lib/limits";
   import { invalidateQuestion, pushToast } from "../lib/stores";
   import { isoToLocalInput, localInputToIso } from "../lib/time";
+  import { audienceFor, ensureProjectNames, isKnownProject } from "../lib/projects";
   import ProjectPicker from "./ProjectPicker.svelte";
   import ApprovalTypeSelector from "./ApprovalTypeSelector.svelte";
   import ResponseOptionEditor from "./ResponseOptionEditor.svelte";
@@ -48,9 +49,34 @@
   let description = question?.description ?? "";
   let projectId =
     question?.project_id ?? (user.projects.length > 0 ? user.projects[0] : "");
-  let targetAudience =
-    question?.target_audience ??
-    (projectId ? `Apache ${projectId} community` : "");
+  let targetAudience = question?.target_audience ?? audienceFor(projectId);
+
+  // Keep the target audience in step with the selected project, but only
+  // while it still holds the auto-generated default — once the user edits
+  // it by hand we leave it alone (issue #14). Edit mode pins the project,
+  // so this only matters when creating.
+  let autoAudience = audienceFor(projectId);
+  let lastProject = projectId;
+  $: if (projectId !== lastProject) {
+    const next = audienceFor(projectId);
+    if (mode === "create" && targetAudience === autoAudience) {
+      targetAudience = next;
+    }
+    autoAudience = next;
+    lastProject = projectId;
+    // If the canonical name isn't bundled (e.g. a brand-new project),
+    // fetch the live feed once and re-apply if still on the default.
+    if (mode === "create" && projectId && !isKnownProject(projectId)) {
+      const pending = projectId;
+      ensureProjectNames().then(() => {
+        if (pending !== projectId) return;
+        const refreshed = audienceFor(projectId);
+        if (refreshed === autoAudience) return;
+        if (targetAudience === autoAudience) targetAudience = refreshed;
+        autoAudience = refreshed;
+      });
+    }
+  }
   let approvalType: ApprovalType =
     question?.approval_type ?? "majority_approval";
   let isBinding: boolean = question?.is_binding ?? true;
