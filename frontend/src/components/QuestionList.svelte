@@ -115,12 +115,18 @@
 
   // "Recent activity": every question (open or closed) updated in the
   // past 14 days, as served by the backend's `recent` array. Project-
-  // scoped per `inRecentScope`; the backend already orders by
-  // updated_at DESC, so we preserve that order rather than re-sorting
-  // by created_at.
+  // scoped per `inRecentScope`. Sorted: open questions first (soonest
+  // to expire), then closed/withdrawn (most recently expired last).
   $: recent = allRecent
     .filter(inRecentScope)
-    .filter((q) => matchesFilter(q, filter));
+    .filter((q) => matchesFilter(q, filter))
+    .sort((a, b) => {
+      const aOpen = a.status === "open";
+      const bOpen = b.status === "open";
+      if (aOpen !== bOpen) return aOpen ? -1 : 1;
+      if (aOpen) return Date.parse(a.closes_at) - Date.parse(b.closes_at);
+      return Date.parse(b.closes_at) - Date.parse(a.closes_at);
+    });
 
   onMount(load);
 </script>
