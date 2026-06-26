@@ -131,7 +131,11 @@ def build_app(settings: Settings | None = None) -> Any:
     from cap_backend.pubsub import PubsubPublisher  # noqa: PLC0415
     from cap_backend.routes.questions import questions_bp  # noqa: PLC0415
     from cap_backend.routes.tokens import tokens_bp  # noqa: PLC0415
-    from cap_backend.tokens import TokenStore, build_token_handler  # noqa: PLC0415
+    from cap_backend.tokens import (  # noqa: PLC0415
+        RoleAccountCredential,
+        TokenStore,
+        build_token_handler,
+    )
 
     database = Database(db_path)
     app.extensions["cap_db"] = database
@@ -141,10 +145,16 @@ def build_app(settings: Settings | None = None) -> Any:
     # and are not shared between worker processes; see SPEC §6.4.
     token_store = TokenStore()
     app.extensions["cap_tokens"] = token_store
+    # Index configured role accounts by the SHA-256 digest of their permanent
+    # token so the handler can resolve a presented bearer token in O(1).
+    role_accounts = {
+        account.hash: RoleAccountCredential(uid=uid, fullname=account.fullname)
+        for uid, account in settings.roleaccounts.items()
+    }
     # Wire the bearer-token handler into asfquart so that
     # ``Authorization: bearer <token>`` requests resolve to a session
     # whose ``metadata.scope`` carries the issued scope list.
-    app.token_handler = build_token_handler(token_store)
+    app.token_handler = build_token_handler(token_store, role_accounts)
 
     _init_quart_schema(app)
 

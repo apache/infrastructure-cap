@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _DEFAULT_CONFIG_SEARCH_PATH = (
     "./config.yaml",
@@ -70,6 +70,30 @@ class NotificationsSettings(BaseModel):
     debug_recipient: str | None = None
 
 
+class RoleAccount(BaseModel):
+    """A configured role account (SPEC §6.4).
+
+    A role account holds a long-lived bearer token whose SHA-256 hex digest
+    is stored here (the plaintext token is never written to config). The
+    permanent token is only good for minting a temporary, cross-committee
+    ``ask`` token at ``GET /api/token``; it cannot act on the API directly.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # SHA-256 hex digest (64 lowercase hex chars) of the permanent bearer
+    # token. Compared against ``sha256(presented_token)`` at lookup time.
+    hash: str = Field(..., pattern=r"^[0-9a-fA-F]{64}$")
+    # Human-facing name surfaced on the issued session (optional).
+    fullname: str | None = None
+
+    @field_validator("hash")
+    @classmethod
+    def _normalize_hash(cls, value: str) -> str:
+        # Store lowercase so the digest comparison is case-insensitive.
+        return value.lower()
+
+
 class Settings(BaseModel):
     """Top-level configuration. Unknown keys are rejected."""
 
@@ -81,6 +105,9 @@ class Settings(BaseModel):
     pubsub: PubsubSettings = Field(default_factory=PubsubSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     notifications: NotificationsSettings = Field(default_factory=NotificationsSettings)
+    # Map of role-account UID -> credential. Keyed by the UID the issued
+    # token will carry (e.g. "tooling"). Empty by default.
+    roleaccounts: dict[str, RoleAccount] = Field(default_factory=dict)
 
 
 def resolve_config_path(cli_path: str | None = None) -> Path:

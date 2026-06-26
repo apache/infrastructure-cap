@@ -208,6 +208,32 @@ async def test_get_private_question_hidden_from_anonymous(app, seed_questions):
     assert response.status_code == 404, "Private question must masquerade as 404 for anonymous"
 
 
+async def test_get_private_question_visible_to_requester_off_committee(
+    app, as_user, seed_questions
+):
+    """The creator can read their own private question even off-committee (§7.5)."""
+    as_user(AuthenticatedUser(uid="carol", committees=()))
+    [qid] = seed_questions(app, count=1, project_id="whimsy", requester="carol", is_private=1)
+    client = app.test_client()
+    response = await client.get(f"/api/question/{qid}")
+    assert response.status_code == 200
+    body = await response.get_json()
+    assert body["question"]["question_id"] == qid
+
+
+async def test_patch_private_question_by_requester_off_committee(
+    app, as_user, seed_questions, captured_emails
+):
+    """The creator can edit their own private question even off-committee (§7.5)."""
+    as_user(AuthenticatedUser(uid="carol", committees=()))
+    [qid] = seed_questions(app, count=1, project_id="whimsy", requester="carol", is_private=1)
+    client = app.test_client()
+    response = await client.patch(f"/api/question/{qid}", json={"title": "Updated title"})
+    assert response.status_code == 200
+    body = await response.get_json()
+    assert body["title"] == "Updated title"
+
+
 # ---------------------------------------------------------------------------
 # PATCH /question/{id}
 # ---------------------------------------------------------------------------

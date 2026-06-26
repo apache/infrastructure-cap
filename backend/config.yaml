@@ -25,3 +25,13 @@ notifications:
   # there instead of the project mailing list. Leave empty (or omit) in
   # production.
   debug_recipient: ""
+
+# Trusted role accounts (SPEC §6.4.1). Each entry is keyed by the UID the
+# issued token will carry; `hash` is the SHA-256 hex digest of the role
+# account's permanent bearer token (the plaintext is never stored here).
+# The permanent token can only mint a temporary, cross-committee "ask"
+# token at GET /api/token. Uncomment and populate to enable.
+# roleaccounts:
+#  tooling:
+#    hash: "0000000000000000000000000000000000000000000000000000000000000000"
+#    fullname: "ASF Trusted Releases"

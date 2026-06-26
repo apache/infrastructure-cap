@@ -7,7 +7,7 @@ from typing import Any
 from quart import Blueprint, current_app, jsonify
 from quart_schema import document_response, validate_response
 
-from cap_backend.auth import current_user
+from cap_backend.auth import ROLE_ISSUE_SCOPE, current_user
 from cap_backend.schemas.errors import AuthenticationRequired, ErrorMessage
 from cap_backend.schemas.tokens import TokenIssued
 
@@ -26,17 +26,30 @@ async def _unauthenticated_response() -> tuple[Any, int]:
 @document_response(AuthenticationRequired, 401)
 @document_response(ErrorMessage, 403)
 async def issue_token() -> Any:
-    """Issue a new personal-access bearer token for the current user.
+    """Issue a new bearer token for the current user.
 
-    Tokens may only be issued from a fully-authenticated OAuth session
-    (token-based sessions cannot bootstrap further tokens). The new
-    token is scoped to ``ask`` only and expires 24 hours after issuance;
-    no more than five tokens are kept live per user.
+    Two callers may issue a token (SPEC §6.4, §9.12):
+
+    * A fully-authenticated **OAuth session** mints a committee-limited
+      personal access token (scoped to ``ask``).
+    * A permanent **role-account credential** (a bearer token whose digest
+      is configured under ``roleaccounts``) mints a cross-committee
+      role-account token, also scoped to ``ask``. The minted token may
+      create or resolve a question for any project, but is otherwise inert.
+
+    Any *other* token session is refused: an ordinary PAT (or an already
+    minted role-account token) cannot bootstrap further tokens. Either way
+    the new token expires 24 hours after issuance, and no more than five
+    tokens are kept live per uid.
     """
     user = await current_user()
     if user is None:
         return await _unauthenticated_response()
-    if user.is_token_session:
+
+    # A permanent role-account credential carries the dedicated issue scope;
+    # that is the one token session permitted to mint a token.
+    is_role_issuer = user.scopes is not None and ROLE_ISSUE_SCOPE in user.scopes
+    if user.is_token_session and not is_role_issuer:
         return (
             jsonify(
                 {
@@ -48,12 +61,23 @@ async def issue_token() -> Any:
         )
 
     store = current_app.extensions["cap_tokens"]
-    info = store.issue(
-        uid=user.uid,
-        committees=user.committees,
-        is_root=user.is_root,
-        fullname=user.fullname,
-    )
+    if is_role_issuer:
+        # Cross-committee role-account token: no committee list is needed
+        # because create/resolve waive the membership check for it.
+        info = store.issue(
+            uid=user.uid,
+            committees=(),
+            is_root=False,
+            fullname=user.fullname,
+            role_account=True,
+        )
+    else:
+        info = store.issue(
+            uid=user.uid,
+            committees=user.committees,
+            is_root=user.is_root,
+            fullname=user.fullname,
+        )
     return (
         TokenIssued(
             token=info.token,

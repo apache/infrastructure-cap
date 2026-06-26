@@ -272,6 +272,14 @@ pubsub:
 
 logging:
   level: "INFO"
+
+# Optional. Trusted role accounts that may mint temporary, cross-committee
+# "ask" tokens (section 6.4.1). Keyed by the UID the issued token carries.
+# Only the SHA-256 hex digest of the permanent bearer token is stored.
+roleaccounts:
+  tooling:
+    hash: "<sha256 hex digest of the permanent token>"
+    fullname: "ASF Trusted Releases"
 ```
 
 A small Pydantic settings model (`cap_backend/config.py`) parses and
@@ -417,12 +425,65 @@ Token-store invariants:
   so downstream code (the scope helper, the `/api/token` endpoint) can
   distinguish PAT-authenticated requests from OAuth ones.
 
-The `AuthenticatedUser` dataclass therefore carries two new fields:
+The `AuthenticatedUser` dataclass therefore carries three new fields:
 
 | field              | type                       | meaning                                  |
 |--------------------|----------------------------|------------------------------------------|
 | `scopes`           | `frozenset[str] \| None`   | `None` for OAuth, scope set for PATs     |
 | `is_token_session` | `bool`                     | `True` when the session came from a PAT  |
+| `is_role_account`  | `bool`                     | `True` for role-account-backed sessions  |
+
+#### 6.4.1 Role accounts
+
+A **role account** lets a trusted third-party service file (and resolve)
+questions programmatically without a human OAuth login. A role account is
+declared in `config.yaml` under a top-level `roleaccounts` mapping, keyed
+by the UID the issued token will carry:
+
+```yaml
+roleaccounts:
+  tooling:                         # the role account's UID
+    hash: "<sha256 hex digest>"    # SHA-256 of the permanent bearer token
+    fullname: "ASF Trusted Releases"
+```
+
+Only the **SHA-256 hex digest** of the permanent token is stored; the
+plaintext token is never written to config. The token handler hashes each
+presented bearer token with `sha256` and, if it is not a live token in the
+in-memory store, compares the digest against the configured role accounts.
+
+The permanent token is deliberately limited: its resolved session carries
+only a single `roleaccount` issue scope (not in the section 6.3 endpoint
+table), so it **cannot** create, resolve, answer, or read anything. Its one
+capability is minting a **temporary** token at `GET /api/token`:
+
+- The client presents `Authorization: bearer <permanent-token>` to
+  `GET /api/token` and receives a fresh temporary token in return.
+- The temporary token is an ordinary `TokenStore` token: scope `["ask"]`,
+  24h TTL, subject to the same five-per-UID cap and opportunistic expiry
+  purge as any PAT. It is flagged `role_account = True`.
+- The temporary token may **create a question for any project**: the
+  `POST /api/question` committee-membership check is waived for a
+  role-account session (`AuthenticatedUser.is_role_account`).
+- The temporary token may **resolve only questions its own uid created**.
+  Resolution is gated by the normal requester check, which is *not* waived;
+  since a role account is the `requester` of anything it files, it can
+  resolve those questions (and only those). Early resolution (before
+  `closes_at`) remains root-only, so a role account must wait for the
+  deadline to resolve.
+- The temporary token may do **nothing else**: `PATCH` and `DELETE` on a
+  question return `403 role_account_forbidden`, submitting a response
+  returns `403 insufficient_scope` (it lacks `answer`), and it cannot
+  bootstrap further tokens (`403 token_session_cannot_issue` at
+  `GET /api/token`, since only the permanent credential carries the
+  `roleaccount` issue scope).
+
+The section 7.5 ACL still applies to role accounts, but a role account is
+the `requester` of any question it files, and the requester can always
+view their own question (section 7.5). So a role account *can* read and
+resolve a *private* question it created, even for a project it is not a
+member of; what it cannot see is some *other* private question for a
+project it does not belong to.
 
 ## 7. Persistence (SQLite)
 
@@ -757,6 +818,10 @@ before returning a row. The helper's rule is:
   authenticated user.
 - If `question.is_private == True`: return `True` if **any** of
   the following hold for `user`:
+  - `user.uid == question.requester`. The original requester can
+    always see (and therefore edit/resolve) their own question, even
+    if they are not on the project committee or never were (e.g. a
+    role account that filed it for another project, section 6.4.1).
   - `user.is_root` is true (i.e. `session.isRoot`).
   - `question.project_id` appears in `user.committees`.
   - `'tooling'` appears in `user.committees`. The `tooling`
@@ -1568,13 +1633,17 @@ Issue a personal-access bearer token for the currently authenticated
 user. The token is the credential used by the `Authorization: bearer
 <token>` header described in section 6.4.
 
-- **Auth**: required. The caller must be authenticated via the OAuth
-  gateway (`/api/auth`). Token-authenticated sessions are explicitly
-  refused: a token cannot be used to issue further tokens.
+- **Auth**: required. Two callers may issue a token: a session
+  authenticated via the OAuth gateway (`/api/auth`), or a permanent
+  **role-account credential** (section 6.4.1). Every *other* token
+  session is refused: an ordinary PAT (or an already-minted role-account
+  token) cannot be used to issue further tokens.
 - **Scope**: this endpoint is not gated by an entry in the section 6.3
-  scope table because it predates any token's existence. Token-based
-  callers receive `403 token_session_cannot_issue` regardless of the
-  scopes they carry.
+  scope table because it predates any token's existence. Ordinary
+  token-based callers receive `403 token_session_cannot_issue`
+  regardless of the scopes they carry; the sole exception is a permanent
+  role-account credential, which carries the dedicated `roleaccount`
+  issue scope and is allowed to mint a temporary token.
 - **Request body**: empty.
 - **Response**: `201 Created`, body is a `TokenIssued`:
 
@@ -1602,14 +1671,19 @@ user. The token is the credential used by the `Authorization: bearer
 - **Errors**:
   - `401 Unauthorized` — not logged in (handled by the global hook).
   - `403 token_session_cannot_issue` — the caller is themselves
-    authenticated by a bearer token, not the OAuth gateway.
+    authenticated by a bearer token that is not a permanent
+    role-account credential.
 
 - **Scope of issued tokens**: every token created by this endpoint
   carries scope `["ask"]` (and only `"ask"`), per the constraint in
   section 6.4. Token holders may therefore create/edit/close/resolve
   questions and call any public-scope endpoint, but they cannot
   submit responses (which require the `answer` scope) and they
-  cannot issue further tokens.
+  cannot issue further tokens. A token minted from a **role-account
+  credential** is additionally flagged `role_account = True`: it may
+  create a question for any project, may resolve only the questions its
+  own uid created, and is barred from editing and withdrawing
+  (`403 role_account_forbidden`), per section 6.4.1.
 
 ### 9.13 `GET /api/publist`
 

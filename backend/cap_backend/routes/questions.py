@@ -57,6 +57,23 @@ def _insufficient_scope(required: str) -> tuple[Any, int]:
     )
 
 
+def _role_account_forbidden() -> tuple[Any, int]:
+    """Body returned when a role-account token attempts a disallowed action.
+
+    Role-account tokens are limited to creating and resolving questions
+    (§6.4); editing and withdrawing are reserved for the human requester.
+    """
+    return (
+        jsonify(
+            {
+                "error": "role_account_forbidden",
+                "detail": "Role-account tokens may only create or resolve questions.",
+            }
+        ),
+        403,
+    )
+
+
 def _settings():
     return current_app.extensions["cap_settings"]
 
@@ -237,7 +254,9 @@ async def create_question(data: CreateQuestionRequest) -> Any:
     if not user_has_scope(user, ASK_SCOPE):
         return _insufficient_scope(ASK_SCOPE)
 
-    if data.project_id not in user.committees and not user.is_root:
+    # Role-account tokens may file for any project (§6.4); everyone else must
+    # be on the project's committee (root may file for any project too).
+    if data.project_id not in user.committees and not user.is_root and not user.is_role_account:
         return jsonify({"error": "not_committee_member"}), 403
 
     # request_id is server-assigned (SPEC §9.2): clients cannot supply it,
@@ -351,6 +370,8 @@ async def edit_question(data: EditQuestionRequest, question_id: int) -> Any:
         return await _unauthenticated_response()
     if not user_has_scope(user, ASK_SCOPE):
         return _insufficient_scope(ASK_SCOPE)
+    if user.is_role_account:
+        return _role_account_forbidden()
 
     db = current_app.extensions["cap_db"]
     row = dao.fetch_question_row(db.conn, question_id)
@@ -424,6 +445,8 @@ async def remove_question(question_id: int) -> Any:
         return await _unauthenticated_response()
     if not user_has_scope(user, ASK_SCOPE):
         return _insufficient_scope(ASK_SCOPE)
+    if user.is_role_account:
+        return _role_account_forbidden()
 
     db = current_app.extensions["cap_db"]
     row = dao.fetch_question_row(db.conn, question_id)
@@ -491,6 +514,10 @@ async def resolve_question(question_id: int) -> Any:
     if not can_view_question(user, question):
         return jsonify({"error": "not_found"}), 404
 
+    # Only the original requester or root may resolve. A role-account token is
+    # the requester of any question it filed, so it can resolve those (and only
+    # those) without a special bypass. Early resolution stays root-only
+    # (enforced below), so a role account must wait for the deadline.
     if row["requester"] != user.uid and not user.is_root:
         return jsonify({"error": "forbidden"}), 403
 

@@ -49,6 +49,11 @@ class AuthenticatedUser:
     # See SPEC §6.3 / §6.4.
     scopes: frozenset[str] | None = None
     is_token_session: bool = False
+    # ``True`` for sessions backed by a role-account token (the permanent
+    # credential or a temporary token minted from it). The create/resolve
+    # handlers waive the committee/requester ownership check for these so a
+    # role account can file or resolve a question for any project. See §6.4.
+    is_role_account: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -61,7 +66,13 @@ class AuthenticatedUser:
             if isinstance(raw_scope, (list, tuple, set, frozenset)):
                 scope_list = [str(s) for s in raw_scope]
         scopes = frozenset(scope_list) if scope_list is not None else None
-        is_token_session = scopes is not None or bool(getattr(session, "roleaccount", False))
+        # asfquart's ``ClientSession`` exposes the ``roleaccount`` raw key as
+        # the ``isRole`` attribute; accept either spelling so we read the flag
+        # both from a real session and from a plain dict-style stub.
+        is_role_account = bool(
+            getattr(session, "isRole", False) or getattr(session, "roleaccount", False)
+        )
+        is_token_session = scopes is not None or is_role_account
         return cls(
             uid=session.uid,
             committees=committees,
@@ -69,6 +80,7 @@ class AuthenticatedUser:
             fullname=getattr(session, "fullname", None),
             scopes=scopes,
             is_token_session=is_token_session,
+            is_role_account=is_role_account,
         )
 
 
@@ -158,6 +170,11 @@ async def current_user() -> AuthenticatedUser | None:
 PUBLIC_SCOPE = "public"
 ASK_SCOPE = "ask"
 ANSWER_SCOPE = "answer"
+# Scope carried by a permanent role-account credential. It is *only* good
+# for minting a temporary ``ask`` token at ``GET /api/token`` (§6.4); it is
+# deliberately not in the §6.3 endpoint scope table, so a session holding
+# only this scope cannot create, resolve, answer, or read anything.
+ROLE_ISSUE_SCOPE = "roleaccount"
 
 
 def user_has_scope(user: AuthenticatedUser, scope: str) -> bool:
@@ -179,11 +196,17 @@ def can_view_question(user: AuthenticatedUser, question: Question | Any) -> bool
     """Implements the private-question ACL from SPEC section 7.5.
 
     Accepts either a Question Pydantic model or any object exposing
-    ``is_private`` and ``project_id`` attributes (so the helper can be used
-    with raw rows during list queries too).
+    ``is_private``, ``project_id`` and ``requester`` attributes (so the
+    helper can be used with raw rows during list queries too).
     """
     is_private = bool(getattr(question, "is_private", False))
     if not is_private:
+        return True
+    # The original requester can always see (and therefore edit/resolve)
+    # their own question, even if they are not on the project committee or
+    # never were (e.g. a role account that filed it for another project).
+    requester = getattr(question, "requester", None)
+    if requester is not None and requester == user.uid:
         return True
     if user.is_root:
         return True
