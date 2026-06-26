@@ -71,3 +71,23 @@ def test_audit_action_constraint_rejects_unknown(tmp_path):
         raise AssertionError("Expected CHECK violation on unknown audit action")
     finally:
         database.close()
+
+
+def test_database_init_runs_migrations(tmp_path):
+    """Database() builds the schema via the migration runner (SPEC §7)."""
+    from cap_backend.migrations import discover_migrations
+
+    db_path = tmp_path / "cap.sqlite3"
+    database = Database(db_path)
+    try:
+        recorded = {
+            int(r[0]) for r in database.conn.execute("SELECT version FROM schema_migrations")
+        }
+        assert recorded == {m.version for m in discover_migrations()}
+        # The migrated schema accepts the token.issue action.
+        database.conn.execute(
+            "INSERT INTO audit_log (occurred_at, actor, action) VALUES (?, ?, ?)",
+            ("2026-01-01T00:00:00Z", "alice", "token.issue"),
+        )
+    finally:
+        database.close()

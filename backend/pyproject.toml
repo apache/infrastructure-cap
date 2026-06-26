@@ -29,6 +29,7 @@ packages = ["cap_backend"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "cap_backend/sql/schema.sql" = "cap_backend/sql/schema.sql"
+"cap_backend/sql/migrations" = "cap_backend/sql/migrations"
 
 [tool.ruff]
 line-length = 100

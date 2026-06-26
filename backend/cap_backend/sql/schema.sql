@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
             'question.edit',
             'question.respond',
             'question.resolve',
-            'question.remove'
+            'question.remove',
+            'token.issue'
         )),
     question_id  INTEGER,
     response_id  TEXT,

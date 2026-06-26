@@ -7,6 +7,8 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
+from cap_backend.migrations import run_migrations
+
 _SCHEMA_RESOURCE = ("cap_backend.sql", "schema.sql")
 
 
@@ -31,6 +33,12 @@ def bootstrap_schema(conn: sqlite3.Connection) -> None:
 
     All statements are wrapped in ``CREATE ... IF NOT EXISTS``, so calling this
     against an already-initialized database is a safe no-op.
+
+    ``schema.sql`` is the canonical *snapshot* of the current schema, kept in
+    sync with the migrations (a test enforces equality) and used by the
+    ``upgradedb.py`` reconciliation tool. Runtime bootstrap goes through
+    ``run_migrations`` (see ``Database``); this helper exists for tooling and
+    tests that want the current schema in one shot.
     """
     conn.executescript(read_schema_sql())
 
@@ -47,7 +55,10 @@ class Database:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.conn = connect(self.path)
-        bootstrap_schema(self.conn)
+        # Build/upgrade the schema through the versioned migration runner so a
+        # database created by any prior release is brought up to the current
+        # schema on startup (SPEC §7).
+        run_migrations(self.conn)
         self.write_lock = asyncio.Lock()
 
     def close(self) -> None:
