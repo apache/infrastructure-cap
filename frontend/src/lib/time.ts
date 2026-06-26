@@ -33,7 +33,15 @@ export function formatLocal(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  // Minute precision is enough for question/response timestamps; seconds
+  // only add noise (see issue #26).
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function formatRelative(iso: string | null | undefined): string {
