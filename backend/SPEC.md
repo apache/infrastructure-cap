@@ -104,6 +104,9 @@ backend/
     │                           # `can_view_question` ACL helper
     ├── config.py               # Pydantic settings loaded from config.yaml
     ├── db.py                   # SQLite connection + schema bootstrap
+    │                           # (runs the migration runner on init)
+    ├── migrations.py           # versioned schema migration runner
+    │                           # (section 7.6)
     ├── dao.py                  # row <-> Pydantic projection, INSERT/
     │                           # UPDATE helpers for `questions` and
     │                           # `responses` (caller owns the txn)
@@ -136,7 +139,12 @@ backend/
     │                           # CreateQuestionRequest, EditQuestionRequest,
     │                           # ResolutionRecord
     └── sql/
-        └── schema.sql          # CREATE TABLE statements for SQLite
+        ├── schema.sql          # snapshot of the current cumulative schema
+        │                       # (kept equal to the migrations by a test;
+        │                       # used by upgradedb.py, not the bootstrap)
+        └── migrations/         # ordered, immutable migration files
+            ├── 0001_initial_schema.sql
+            └── 0002_add_token_issue_audit_action.sql
 ```
 
 ### 3.1 Integration notes
@@ -498,13 +506,15 @@ in `config.yaml` (see section 5.1). The database is opened with:
   writes; reads may use short-lived per-request connections. (SQLite
   in WAL mode tolerates concurrent reads with a single writer.)
 
-On startup, `cap_backend/db.py` runs the statements in
-`cap_backend/sql/schema.sql` with `CREATE TABLE IF NOT EXISTS`, so the
-schema is materialized on first launch and is a no-op on subsequent
-starts. Future migrations will live in numbered files (`0001_*.sql`,
-`0002_*.sql`, ...) tracked by a `schema_migrations` table; that
-migration runner is not part of this iteration but the layout reserves
-room for it.
+On startup, `Database.__init__` (in `cap_backend/db.py`) runs the
+**migration runner** (`cap_backend/migrations.py`), which brings the
+database up to the current schema. See section 7.6 for the runner's
+contract and the standing rule that governs every future schema change.
+`cap_backend/sql/schema.sql` is retained as a single-file *snapshot* of
+the current cumulative schema: it is what the `upgradedb.py`
+reconciliation tool diffs against and a convenient reference, and a test
+asserts it stays byte-for-byte equivalent to the result of applying every
+migration. It is no longer the runtime bootstrap path.
 
 All three tables share two common timestamp columns: `created_at` and
 `updated_at`, both stored as ISO 8601 UTC text (`TEXT NOT NULL`). This
@@ -706,6 +716,11 @@ The actions tracked are exactly the ones called out in this spec:
 - `question.respond`: a voter submits or amends a response.
 - `question.resolve`: the voting window closes and a permalink is issued.
 - `question.remove`: a question is withdrawn before resolving.
+- `token.issue`: a bearer token is issued at `GET /api/token` (§9.12).
+  `question_id` and `response_id` are NULL; `details_json` carries the
+  issued token's metadata (`uid`, `scopes`, `role_account`, `expires_at`)
+  but **never** the plaintext token. This row is not republished by the
+  pubsub publisher, which only emits question events (§10.1).
 
 ```sql
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -718,9 +733,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
             'question.edit',
             'question.respond',
             'question.resolve',
-            'question.remove'
+            'question.remove',
+            'token.issue'
         )),
-    question_id  INTEGER,                             -- nullable for future non-question actions
+    question_id  INTEGER,                             -- nullable for non-question actions
     response_id  TEXT,                                -- set for question.respond
     details_json TEXT NOT NULL DEFAULT '{}'           -- action-specific payload
 );
@@ -750,7 +766,10 @@ Write discipline:
   `audit.record(action, actor, question_id=..., response_id=..., details=...)`
   in `cap_backend/audit.py` takes the active connection and performs
   the insert; callers must not log to `audit_log` outside a
-  transactional path.
+  transactional path. The sole exception is `token.issue`: tokens live
+  in an in-memory store, not in SQLite, so there is no paired table
+  write — the audit insert stands alone in its own transaction, written
+  immediately after the token is minted.
 - The audit log is the source of truth that feeds the internal
   pubsub stream (section 10). The pubsub publisher tails this table
   by `audit_id`.
@@ -840,6 +859,49 @@ from never-existed questions for unauthorized viewers.
 private questions the caller cannot view are silently filtered out of
 the returned `pending` array. The same goes for `GET /api/resolution/{id}`:
 the 404 case covers both "no such id" and "id exists but ACL denies".
+
+### 7.6 Schema migrations
+
+The database schema is owned by an ordered set of numbered SQL files
+under `cap_backend/sql/migrations/` (`0001_initial_schema.sql`,
+`0002_*.sql`, ...). `cap_backend/migrations.py` is the runner; it runs on
+every startup (from `Database.__init__`) and is a no-op once the database
+is current.
+
+**Standing rule — the migration runner MUST be able to upgrade any older
+installation to the current schema.** Concretely:
+
+1. **Every schema change ships as a new migration.** Adding a column,
+   table, index, constraint, or a data fix-up means adding a new file with
+   the next version number. Released migration files are immutable: never
+   edit `0001_*.sql` (or any already-shipped migration) to change the
+   schema — that would silently diverge installations that already ran it.
+   Because SQLite cannot `ALTER` a `CHECK`/`UNIQUE`/FK constraint in place,
+   a constraint change is expressed as a table rebuild (rename aside,
+   create the new table, copy rows, drop the old, recreate indexes), as in
+   `0002_add_token_issue_audit_action.sql`.
+2. **Versions are contiguous from 1** and each filename is
+   `NNNN_snake_case_description.sql`. The runner validates this at startup.
+3. **Applied versions are tracked** in a `schema_migrations(version,
+   name, applied_at)` table. Each migration is applied inside a single
+   transaction together with its bookkeeping row, so a migration is
+   atomic: it either fully lands and is recorded or it rolls back and is
+   retried on the next start.
+4. **Bootstrapping covers three cases:**
+   - *Fresh database* (no core tables): every migration runs in order.
+   - *Legacy database* (created before the runner existed, so the
+     `questions` table is present but there is no `schema_migrations`
+     table): its on-disk schema is by definition the `0001` baseline, so
+     `0001` is stamped as applied without re-running it and every later
+     migration runs to upgrade it. This is what lets an old install reach
+     the current schema with no manual intervention.
+   - *Already-migrated database*: only versions absent from
+     `schema_migrations` run.
+5. **`schema.sql` is a generated snapshot, not the bootstrap.** It must
+   stay equivalent to "apply every migration to an empty database"; a test
+   (`test_migrations_match_schema_snapshot`) enforces this so the snapshot
+   and the migrations can never silently drift. When you add a migration,
+   regenerate `schema.sql` to match.
 
 ## 8. Pydantic Schemas
 
@@ -1666,7 +1728,9 @@ user. The token is the credential used by the `Authorization: bearer
   live tokens, the oldest one is evicted before the new token is
   inserted so the cap (`MAX_TOKENS_PER_UID = 5`) is preserved.
   Expired tokens are purged opportunistically on every issue and on
-  every lookup.
+  every lookup. A `token.issue` row is then written to `audit_log`
+  (§7.3) recording the actor and the issued token's metadata (`uid`,
+  `scopes`, `role_account`, `expires_at`) — never the plaintext token.
 
 - **Errors**:
   - `401 Unauthorized` — not logged in (handled by the global hook).

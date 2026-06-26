@@ -130,9 +130,16 @@ absolute expiry 24 hours later. Constraints:
 ## Persistence
 
 SQLite 3 in WAL mode at the path given by `database.path` in
-`config.yaml`. The schema is materialized on first launch via
-`CREATE TABLE IF NOT EXISTS` (see `cap_backend/sql/schema.sql`).
-Tables: `questions`, `responses`, `audit_log`, `pubsub_cursor`.
+`config.yaml`. On startup the **migration runner**
+(`cap_backend/migrations.py`) brings the database up to the current
+schema: a fresh database is built from `cap_backend/sql/migrations/0001`
+forward, a database created by an older release is upgraded in place
+(its applied versions are tracked in `schema_migrations`), and an
+up-to-date database is left untouched. To change the schema, add a new
+numbered migration under `cap_backend/sql/migrations/` and regenerate the
+`cap_backend/sql/schema.sql` snapshot to match (SPEC §7.6). Tables:
+`questions`, `responses`, `audit_log`, `pubsub_cursor`,
+`schema_migrations`.
 
 ## Configuration
 
