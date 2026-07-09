@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { projectDisplayName } from "../lib/projects";
+
   export let value: string = "";
   export let options: string[] = [];
   export let id: string = "project-picker";
@@ -14,6 +16,6 @@
 >
   <option value="" disabled>Select a project...</option>
   {#each options as project}
-    <option value={project}>{project}</option>
+    <option value={project}>{projectDisplayName(project)}</option>
   {/each}
 </select>
