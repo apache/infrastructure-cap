@@ -4,6 +4,14 @@
 
   export let responses: StoredResponse[];
 
+  let sortDesc = true;
+
+  $: sorted = [...responses].sort((a, b) =>
+    sortDesc
+      ? Date.parse(b.created_at) - Date.parse(a.created_at)
+      : Date.parse(a.created_at) - Date.parse(b.created_at),
+  );
+
   // A current response renders inline; a run of consecutive superseded
   // responses by one voter is collapsed into an expandable rollup.
   type TimelineItem =
@@ -13,20 +21,20 @@
   // Mark each row as "superseded" if a later row exists from the same voter.
   $: ranked = (() => {
     const latestByVoter = new Map<string, string>();
-    for (const r of responses) {
+    for (const r of sorted) {
       const prev = latestByVoter.get(r.voter);
       if (!prev || Date.parse(r.created_at) > Date.parse(prev)) {
         latestByVoter.set(r.voter, r.created_at);
       }
     }
-    return responses.map((r) => ({
+    return sorted.map((r) => ({
       r,
       superseded: latestByVoter.get(r.voter) !== r.created_at,
     }));
   })();
 
-  // Walk the ordered rows (oldest first) and collapse each maximal run of
-  // consecutive superseded responses from the same voter into one rollup.
+  // Walk the ordered rows and collapse each maximal run of consecutive
+  // superseded responses from the same voter into one rollup.
   // Current responses (and runs broken by a different voter) stay distinct.
   $: items = ((): TimelineItem[] => {
     const out: TimelineItem[] = [];
@@ -68,9 +76,21 @@
 </script>
 
 <div class="card">
-  <div class="card-header bg-white">
-    <strong>Responses</strong>
-    <span class="text-muted small ms-1">({responses.length})</span>
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <div>
+      <strong>Responses</strong>
+      <span class="text-muted small ms-1">({responses.length})</span>
+    </div>
+    {#if responses.length > 1}
+      <button
+        type="button"
+        class="btn btn-sm btn-link p-0 text-decoration-none text-muted"
+        on:click={() => (sortDesc = !sortDesc)}
+        title={sortDesc ? "Switch to oldest first" : "Switch to newest first"}
+      >
+        <i class="fa-solid fa-clock me-1"></i>{sortDesc ? "Newest first" : "Oldest first"}
+      </button>
+    {/if}
   </div>
   {#if responses.length === 0}
     <div class="card-body empty-state">
