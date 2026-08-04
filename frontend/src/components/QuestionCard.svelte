@@ -2,6 +2,11 @@
   import { link } from "svelte-spa-router";
   import type { Question } from "../lib/types";
   import { secondsRemaining } from "../lib/time";
+  import {
+    PENDING_RESOLUTION_LABEL,
+    isPendingResolution,
+    pendingResolutionTooltip,
+  } from "../lib/status";
   import CountdownBadge from "./CountdownBadge.svelte";
   import PrivacyBadge from "./PrivacyBadge.svelte";
 
@@ -29,7 +34,7 @@
   // resolve or withdraw, so the question is neither "Open" nor carrying
   // an outcome yet. Marking it "Open" here overstates what the viewer
   // can still do with it.
-  $: pendingResolution = question.status === "open" && deadlinePassed;
+  $: pendingResolution = isPendingResolution(question, deadlinePassed);
 
   $: outcomeClass = pendingResolution
     ? "status-pending-resolution"
@@ -40,7 +45,7 @@
         : `status-resolved-${question.outcome ?? "approved"}`;
 
   $: outcomeLabel = pendingResolution
-    ? "Voting closed, pending resolution"
+    ? PENDING_RESOLUTION_LABEL
     : question.status === "open"
       ? "Open"
       : question.status === "removed"
@@ -68,8 +73,7 @@
   // Native title tooltip (the app does not initialize Bootstrap's JS
   // tooltips anywhere), spelling out who the question is waiting on.
   $: outcomeTooltip = pendingResolution
-    ? `Voting closed at the deadline. This question is waiting for ` +
-      `${question.requester} to resolve or withdraw it.`
+    ? pendingResolutionTooltip(question)
     : null;
 </script>
 

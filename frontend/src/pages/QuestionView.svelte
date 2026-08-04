@@ -251,6 +251,7 @@
       <TallyPanel
         question={detail.question}
         responses={detail.responses}
+        {deadlinePassed}
       />
     </div>
     <div class="col-md-7">

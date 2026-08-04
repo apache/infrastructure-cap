@@ -1,13 +1,26 @@
 <script lang="ts">
   import type { Question, StoredResponse } from "../lib/types";
   import { previewTally } from "../lib/tally";
+  import {
+    PENDING_RESOLUTION_LABEL,
+    isPendingResolution,
+    pendingResolutionTooltip,
+  } from "../lib/status";
   import { pushToast } from "../lib/stores";
   import ExpandableComment from "./ExpandableComment.svelte";
 
   export let question: Question;
   export let responses: StoredResponse[];
+  // The question page tracks the deadline live (its CountdownBadge fires
+  // `closed` when the timer runs out) and hands the flag down, so the
+  // header flips without a reload. Left unset, we read the clock once.
+  export let deadlinePassed: boolean | undefined = undefined;
 
   $: tally = previewTally(question, responses);
+
+  // Voting is over, but nobody has resolved or withdrawn yet: the tally
+  // is still provisional, though no further responses can change it.
+  $: pendingResolution = isPendingResolution(question, deadlinePassed);
 
   async function copyPermalink() {
     if (!question.permalink) return;
@@ -23,7 +36,10 @@
 <div class="card">
   <div class="card-header bg-white">
     <strong>
-      {#if question.status === "open"}
+      {#if pendingResolution}
+        <i class="fa-solid fa-hourglass-half text-info me-1"></i>Provisional
+        tally
+      {:else if question.status === "open"}
         <i class="fa-regular fa-clock me-1"></i>Provisional tally
       {:else if question.status === "removed"}
         <i class="fa-solid fa-xmark me-1"></i>Withdrawn
@@ -36,7 +52,14 @@
         >Insufficient votes
       {/if}
     </strong>
-    {#if question.status === "open"}
+    {#if pendingResolution}
+      <span
+        class="text-muted small ms-2"
+        title={pendingResolutionTooltip(question)}
+      >
+        {PENDING_RESOLUTION_LABEL}.
+      </span>
+    {:else if question.status === "open"}
       <span class="text-muted small ms-2">Not yet resolved.</span>
     {/if}
   </div>
