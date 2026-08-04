@@ -39,6 +39,10 @@ main {
 .q-card.status-open {
   border-left-color: $primary;
 }
+// Deadline passed, but the requester has not resolved or withdrawn yet.
+.q-card.status-pending-resolution {
+  border-left-color: var(--bs-info);
+}
 .q-card.status-resolved-approved {
   border-left-color: var(--bs-success);
 }

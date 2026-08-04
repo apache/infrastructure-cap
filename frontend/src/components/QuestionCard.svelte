@@ -25,15 +25,23 @@
   // Still accepting responses from this viewer?
   $: canRespond = !readOnly && question.status === "open" && !deadlinePassed;
 
-  $: outcomeClass =
-    question.status === "open"
+  // The in-between state: voting is over, but the requester has yet to
+  // resolve or withdraw, so the question is neither "Open" nor carrying
+  // an outcome yet. Marking it "Open" here overstates what the viewer
+  // can still do with it.
+  $: pendingResolution = question.status === "open" && deadlinePassed;
+
+  $: outcomeClass = pendingResolution
+    ? "status-pending-resolution"
+    : question.status === "open"
       ? "status-open"
       : question.status === "removed"
         ? "status-removed"
         : `status-resolved-${question.outcome ?? "approved"}`;
 
-  $: outcomeLabel =
-    question.status === "open"
+  $: outcomeLabel = pendingResolution
+    ? "Voting closed, pending resolution"
+    : question.status === "open"
       ? "Open"
       : question.status === "removed"
         ? "Withdrawn"
@@ -45,8 +53,9 @@
               ? "Insufficient votes"
               : "Closed";
 
-  $: outcomeIcon =
-    question.status === "open"
+  $: outcomeIcon = pendingResolution
+    ? "fa-solid fa-hourglass-half text-info"
+    : question.status === "open"
       ? "fa-regular fa-clock"
       : question.outcome === "approved"
         ? "fa-solid fa-check text-success"
@@ -55,6 +64,13 @@
           : question.outcome === "insufficient_votes"
             ? "fa-solid fa-triangle-exclamation text-warning"
             : "fa-solid fa-xmark text-muted";
+
+  // Native title tooltip (the app does not initialize Bootstrap's JS
+  // tooltips anywhere), spelling out who the question is waiting on.
+  $: outcomeTooltip = pendingResolution
+    ? `Voting closed at the deadline. This question is waiting for ` +
+      `${question.requester} to resolve or withdraw it.`
+    : null;
 </script>
 
 <div class="card q-card {outcomeClass} mb-2">
@@ -78,7 +94,7 @@
               ><i class="fa-solid fa-gavel me-1"></i>your vote is binding</span
             >
           {/if}
-          <span class="small text-muted">
+          <span class="small text-muted" title={outcomeTooltip}>
             <i class={outcomeIcon}></i>
             {outcomeLabel}
           </span>
