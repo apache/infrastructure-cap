@@ -1,6 +1,7 @@
 <script lang="ts">
   import { link } from "svelte-spa-router";
   import type { Question } from "../lib/types";
+  import { secondsRemaining } from "../lib/time";
   import CountdownBadge from "./CountdownBadge.svelte";
   import PrivacyBadge from "./PrivacyBadge.svelte";
 
@@ -9,6 +10,20 @@
   // question but is not allowed to submit a response (e.g. anonymous
   // dashboard mode).
   export let readOnly: boolean = false;
+
+  // A question keeps `status === "open"` until it is resolved, but the
+  // backend rejects responses the moment closes_at passes (409
+  // deadline_passed), same as ResponseForm guards against. Offering
+  // "Respond" on such a card points the viewer at a guaranteed error, so
+  // treat a passed deadline as closed and fall back to "View tally".
+  // CountdownBadge fires `closed` when the deadline elapses while the
+  // dashboard is open, which flips this live.
+  let deadlinePassed = secondsRemaining(question.closes_at) <= 0;
+  // Recompute when the list refresh swaps new data into the same card.
+  $: deadlinePassed = secondsRemaining(question.closes_at) <= 0;
+
+  // Still accepting responses from this viewer?
+  $: canRespond = !readOnly && question.status === "open" && !deadlinePassed;
 
   $: outcomeClass =
     question.status === "open"
@@ -75,32 +90,27 @@
             <CountdownBadge
               closesAt={question.closes_at}
               initialSeconds={question.time_remaining_seconds}
+              on:closed={() => (deadlinePassed = true)}
             />
           </div>
-          {#if readOnly}
-            <a
-              href="/question/{question.question_id}"
-              class="btn btn-sm btn-outline-secondary"
-              use:link
-            >
-              View
-            </a>
-          {:else}
-            <a
-              href="/question/{question.question_id}"
-              class="btn btn-sm btn-primary"
-              use:link
-            >
-              <i class="fa-solid fa-paper-plane me-1"></i>Respond
-            </a>
-          {/if}
+        {/if}
+        {#if canRespond}
+          <a
+            href="/question/{question.question_id}"
+            class="btn btn-sm btn-primary"
+            use:link
+          >
+            <i class="fa-solid fa-paper-plane me-1"></i>Respond
+          </a>
         {:else}
           <a
             href="/question/{question.question_id}"
             class="btn btn-sm btn-outline-secondary"
             use:link
           >
-            View tally
+            {question.status === "open" && !deadlinePassed
+              ? "View"
+              : "View tally"}
           </a>
         {/if}
       </div>
