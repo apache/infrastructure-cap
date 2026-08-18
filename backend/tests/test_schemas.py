@@ -83,6 +83,19 @@ def test_response_option_discriminator_picks_correct_variant():
     assert isinstance(q.response_option, VoteOption)
 
 
+def test_vote_option_requires_at_least_two_distinct_values():
+    # A single-value ballot leaves voters no way to abstain or oppose
+    # (issue #34): reject it, whether expressed as one value or as a
+    # duplicated pair.
+    with pytest.raises(ValidationError):
+        VoteOption(allowed_values=["+1"])
+    with pytest.raises(ValidationError):
+        VoteOption(allowed_values=["+1", "+1"])
+    # Two distinct values (and the four-value default) stay valid.
+    assert VoteOption(allowed_values=["+1", "-1"]).allowed_values == ["+1", "-1"]
+    assert len(VoteOption().allowed_values) == 4
+
+
 def test_submitted_response_discriminator():
     vote = VoteResponse(value="+1", comment="LGTM")
     again = VoteResponse.model_validate_json(vote.model_dump_json())
