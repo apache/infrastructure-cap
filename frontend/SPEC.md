@@ -357,7 +357,7 @@ backend spec:
 | "New question" button (public)        | `session.projects` is non-empty                                           |
 | "Mark this question private" checkbox | the selected `project_id` is in `session.committees`                      |
 | "Edit" / "Withdraw" / "Resolve" links | `question.requester === session.uid` or `session.isRoot`, and `status==='open'` |
-| "Respond" form                        | `question.status === 'open'` and `question` is in `/list` (see section 7) |
+| "Respond" form                        | `question.status === 'open'` and `question` is in `/list` (see section 7); labelled "Update response" when `question.viewer_has_responded` |
 | "All projects" dashboard switch       | `session.isRoot === true` or `session.committees.includes("tooling")` (privileged viewers); see section 8.2 |
 
 The frontend never tries to derive view-access for a private
@@ -442,7 +442,16 @@ One card per row in the dashboard tabs. Renders, in a Bootstrap
     omitted; its `withdrawn` outcome already says it is closed. The
     helper is `closedAt()` in `src/lib/status.ts`.
 - Right side: a "Respond" button (open + caller is in the question's
-  audience) or a "View tally" button (closed).
+  audience) or a "View tally" button (closed). When
+  `question.viewer_has_responded` is true the button reads "Update
+  response" and drops to `btn-outline-primary`: the viewer has a
+  response on record, and the backend appends an amendment rather than
+  rejecting it, so the action is still live but no longer the thing the
+  question is waiting on. The same condition adds a
+  `bg-success-subtle` "you responded" chip (`fa-check-double`) to the
+  badge row, so a scan of the list shows what is left to do without
+  opening anything. Both are suppressed for a read-only (anonymous)
+  card, where `viewer_has_responded` is always false anyway.
 
 ### 8.2 `<QuestionList>` (the two-tab pane)
 
@@ -451,7 +460,7 @@ populated:
 
 | Tab title                       | Source                                                                                                            |
 |---------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| **Awaiting your response**      | `GET /list`, filtered client-side to questions where the caller has not yet submitted a response                  |
+| **Awaiting your response**      | `GET /list` `pending`. Questions the caller has already answered are kept, not filtered out (a response may be amended while the question is open), and marked via `viewer_has_responded` |
 | **Recent activity**             | Computed from `/list` + per-question `GET /question/:id` calls (only when the dashboard expands a row), constrained to questions created or resolved within the last 30 days where the user is on the project/committee or has responded |
 
 The "Awaiting your response" tab is the cheap path: a single
@@ -493,8 +502,16 @@ Within each tab:
   local and resets to "off" on every page load; persisting it is
   out of scope for this iteration.
 - Sorting differs per tab, because the two tabs answer different
-  questions. "Awaiting your response" is an urgency inbox: ascending
-  `closes_at`, so the soonest-to-close items are at the top.
+  questions. "Awaiting your response" is an urgency inbox. `status ===
+  "open"` is not the same as "still taking responses": the backend
+  refuses responses from `closes_at` onwards, so a question whose
+  deadline has passed sits in `pending` waiting on its requester, not on
+  the viewer. Those sort below everything still actionable, however soon
+  the actionable ones close. Within the live group the soonest
+  `closes_at` leads; within the closed group the most recently closed
+  leads. The clock is read when the list is recomputed, so a question
+  crossing its deadline while the dashboard sits open re-sorts on the
+  next refresh rather than jumping under the reader's cursor.
   "Recent activity" is reverse-chronological on each question's last
   viewer-visible state change, `lastActivityAt()` in
   `src/lib/status.ts`, which is its closing time if it has closed and
@@ -1067,6 +1084,11 @@ Coverage by area:
   the compatibility rules from section 8.4 are tested end-to-end
   (changing `approval_type` snaps the option to a compatible
   default).
+- **`QuestionCard`** (`tests/QuestionCard.test.ts`): the filed and
+  closed age markers appear per section 8.1 (no closed marker while the
+  question is still taking responses); `viewer_has_responded` swaps the
+  action to "Update response" and adds the "you responded" chip; a
+  read-only card renders neither.
 - **`ResponseForm`** (`tests/ResponseForm.test.ts`): for each
   `kind`, the form renders the correct controls; a binding `-1`
   on a `unanimous_approval` question without a comment cannot
@@ -1079,7 +1101,9 @@ Coverage by area:
   paginates at five rows with no controls at or below that length,
   keeps a per-tab cursor, and resets to page 1 when the filter or
   project scope changes; "Recent activity" is ordered by
-  `lastActivityAt()` descending.
+  `lastActivityAt()` descending; "Awaiting your response" puts every
+  question still taking responses above every question whose deadline
+  has passed.
 - **`Pagination`** (`tests/Pagination.test.ts`): renders nothing for a
   single page; windows the page numbers with ellipses for long lists;
   disables Previous on the first page and Next on the last; reports

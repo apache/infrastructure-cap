@@ -630,9 +630,11 @@ The row-to-Pydantic mapping is:
 
 `updated_at` is a persistence-only column (not surfaced on the API
 model) used by the resolver and the audit log. The
-`viewer_is_binding` and `time_remaining_seconds` fields on the
-`Question` Pydantic model are server-computed per response and are
-deliberately not stored on this table.
+`viewer_is_binding`, `viewer_has_responded`, and
+`time_remaining_seconds` fields on the `Question` Pydantic model are
+server-computed per response and are deliberately not stored on this
+table; `viewer_has_responded` is derived from the `responses` table
+(section 7.2) for the calling user.
 
 ### 7.2 Table: `responses`
 
@@ -1068,6 +1070,18 @@ class Question(BaseModel):
     # without re-doing the committee lookup client-side.
     viewer_is_binding: bool
 
+    # Server-computed per response (NOT persisted). True if the user
+    # receiving this Question has already submitted at least one
+    # response to it. Responses are append-only (section 7.2), so an
+    # amendment leaves this True rather than toggling it, and the field
+    # says nothing about *what* was submitted. Lets a dashboard mark the
+    # questions a viewer has dealt with, and label its call to action
+    # "Update response" rather than "Respond", without fetching every
+    # question's response list. Always False for a caller with no
+    # session (`/api/publist`, pubsub payloads): no session means no
+    # responses of their own to match.
+    viewer_has_responded: bool = False
+
     # Server-computed at response time. Seconds until `closes_at`,
     # clamped to 0 for already-closed questions. This field is *not*
     # persisted; it is filled in by the /api/list handler immediately
@@ -1201,6 +1215,15 @@ request creator is responsible for choosing a sensible combination.
   row through the `Question` Pydantic model. The same stamping
   applies to both `pending` and `recent` so the frontend never has
   to recompute these values.
+- **`viewer_has_responded`**: both queries carry the flag as an
+  `EXISTS (SELECT 1 FROM responses r WHERE r.question_id =
+  questions.question_id AND r.voter = :caller)` column, covered by
+  `idx_responses_question_voter`. It is computed in the list query
+  itself, not per row afterwards, so a dashboard of any length stays
+  two queries: the caller's own answered/unanswered state is the one
+  thing a client cannot derive from the rest of the payload, and
+  making it a field is what keeps the dashboard from issuing a
+  `GET /api/question/{id}` per row to find out.
 - **Empty case**: `pending` and `recent` are empty arrays, not
   `null`.
 - **Errors**:

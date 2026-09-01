@@ -3,6 +3,7 @@
   import type { Question, UserSession } from "../lib/types";
   import { api } from "../lib/api";
   import { lastActivityAt } from "../lib/status";
+  import { secondsRemaining } from "../lib/time";
   import QuestionCard from "./QuestionCard.svelte";
   import ErrorAlert from "./ErrorAlert.svelte";
   import Pagination from "./Pagination.svelte";
@@ -132,17 +133,34 @@
   $: if (!user && activeTab === "awaiting") activeTab = "recent";
 
   // "Awaiting your response": open questions where the viewer is in the
-  // audience (we let the backend decide who is in /list) and has not yet
-  // responded. We can't tell from /list alone if the viewer responded;
-  // fall back to "show all open" as a safe superset.
+  // audience (we let the backend decide who is in /list). Questions the
+  // viewer has already answered stay in the list rather than vanishing,
+  // because a response can be amended while the question is open; the
+  // card marks them from `viewer_has_responded` and offers "Update
+  // response" instead of "Respond".
+  //
+  // `status === "open"` is not the same as "still taking responses": the
+  // backend refuses responses from `closes_at` onwards, so a question
+  // whose deadline has passed sits in this list waiting on its requester,
+  // not on the viewer. Those sort below everything still actionable,
+  // however soon the actionable ones close. Within the live group the
+  // soonest deadline leads (it is the most urgent); within the closed
+  // group the most recently closed leads (it is the freshest). The clock
+  // is read when the list is (re)computed, so a question crossing its
+  // deadline while the dashboard sits open re-sorts on the next refresh.
   $: awaiting = allOpen
     .filter(inAwaitingScope)
     .filter((q) => matchesFilter(q, filter))
-    .sort(
-      (a, b) =>
-        Date.parse(a.closes_at) - Date.parse(b.closes_at) ||
-        a.question_id - b.question_id,
-    );
+    .sort((a, b) => {
+      const aLive = secondsRemaining(a.closes_at) > 0;
+      const bLive = secondsRemaining(b.closes_at) > 0;
+      if (aLive !== bLive) return aLive ? -1 : 1;
+      return aLive
+        ? Date.parse(a.closes_at) - Date.parse(b.closes_at) ||
+            a.question_id - b.question_id
+        : Date.parse(b.closes_at) - Date.parse(a.closes_at) ||
+            b.question_id - a.question_id;
+    });
 
   // "Recent activity": every question (open or closed) updated in the
   // past 14 days, as served by the backend's `recent` array. Project-

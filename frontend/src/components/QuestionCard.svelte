@@ -31,6 +31,13 @@
   // Still accepting responses from this viewer?
   $: canRespond = !readOnly && question.status === "open" && !deadlinePassed;
 
+  // The viewer has a response on record. A response can be amended while
+  // the question is open (the backend appends a new row), so the call to
+  // action becomes "Update response" rather than disappearing. Anonymous
+  // viewers never get the marker: the flag is always false for them, and
+  // `readOnly` hides the action anyway.
+  $: alreadyResponded = !readOnly && question.viewer_has_responded;
+
   // The in-between state: voting is over, but the requester has yet to
   // resolve or withdraw, so the question is neither "Open" nor carrying
   // an outcome yet. Marking it "Open" here overstates what the viewer
@@ -116,6 +123,14 @@
             <i class={outcomeIcon}></i>
             {outcomeLabel}
           </span>
+          {#if alreadyResponded}
+            <span
+              class="badge bg-success-subtle text-success-emphasis border border-success-subtle"
+              title="You have already responded to this question."
+            >
+              <i class="fa-solid fa-check-double me-1"></i>you responded
+            </span>
+          {/if}
           <span class="small text-muted" title={filedTooltip}>
             <i class="fa-solid fa-calendar-plus me-1"></i>filed {filedAgo}
           </span>
@@ -139,10 +154,16 @@
         {#if canRespond}
           <a
             href="/question/{question.question_id}"
-            class="btn btn-sm btn-primary"
+            class="btn btn-sm {alreadyResponded
+              ? 'btn-outline-primary'
+              : 'btn-primary'}"
             use:link
           >
-            <i class="fa-solid fa-paper-plane me-1"></i>Respond
+            {#if alreadyResponded}
+              <i class="fa-solid fa-pen-to-square me-1"></i>Update response
+            {:else}
+              <i class="fa-solid fa-paper-plane me-1"></i>Respond
+            {/if}
           </a>
         {:else}
           <a

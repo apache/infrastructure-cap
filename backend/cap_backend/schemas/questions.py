@@ -61,6 +61,12 @@ class Question(BaseModel):
     ) = None
 
     viewer_is_binding: bool
+    # Server-computed per request (NOT persisted). True when the caller has
+    # already submitted at least one response to this question. Responses
+    # are append-only (SPEC §7.2), so an amendment leaves this True rather
+    # than toggling it. Always False for callers with no session (the
+    # public feed, pubsub payloads), which have no responses to match.
+    viewer_has_responded: bool = False
     time_remaining_seconds: int
 
 

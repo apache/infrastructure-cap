@@ -35,11 +35,19 @@ def row_to_question(
     *,
     viewer: AuthenticatedUser,
     now: datetime | None = None,
+    has_responded: bool = False,
 ) -> Question:
     """Project a ``questions`` row into the public ``Question`` model.
 
     ``viewer_is_binding`` and ``time_remaining_seconds`` are server-computed
     per request (SPEC §8.3), so this helper requires the requesting user.
+
+    ``has_responded`` populates ``viewer_has_responded``. It is a parameter
+    rather than a lookup here because this module never owns a connection:
+    a caller serving one question passes ``viewer_has_responded()`` below,
+    while ``/list`` gets it from an ``EXISTS`` column so a long dashboard
+    stays a single query. It defaults to False, which is the right answer
+    for a caller with no session (the public feed, pubsub).
     """
     closes_at = parse_iso(row["closes_at"])
     created_at = parse_iso(row["created_at"])
@@ -71,6 +79,7 @@ def row_to_question(
             "created_at": created_at,
             "closes_at": closes_at,
             "viewer_is_binding": viewer_is_binding,
+            "viewer_has_responded": has_responded,
             "time_remaining_seconds": max(0, remaining),
         }
     )
@@ -90,6 +99,19 @@ def row_to_stored_response(row: sqlite3.Row) -> StoredResponse:
             "created_at": parse_iso(row["created_at"]),
         }
     )
+
+
+def viewer_has_responded(conn: sqlite3.Connection, question_id: int, voter: str) -> bool:
+    """Has ``voter`` submitted any response to ``question_id``?
+
+    Covered by ``idx_responses_question_voter``. Responses are append-only,
+    so the mere existence of a row is the answer.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM responses WHERE question_id = ? AND voter = ? LIMIT 1",
+        (question_id, voter),
+    ).fetchone()
+    return row is not None
 
 
 def fetch_question_row(conn: sqlite3.Connection, question_id: int) -> sqlite3.Row | None:

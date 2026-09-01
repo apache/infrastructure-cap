@@ -196,6 +196,85 @@ async def test_list_recent_includes_resolved_and_removed_within_window(
     assert by_id[removed_id]["outcome"] == "withdrawn"
 
 
+async def test_list_flags_questions_the_caller_already_answered(
+    app, stub_session, seed_questions, seed_response
+):
+    """SPEC §8.3: `viewer_has_responded` is per caller, on both arrays."""
+    [answered_id] = seed_questions(app, count=1, request_id="answered_req")
+    [untouched_id] = seed_questions(app, count=1, request_id="untouched_req")
+    seed_response(app, question_id=answered_id, voter="alice", value="+1")
+
+    client = app.test_client()
+    response = await client.get("/api/list", headers={"Accept": "application/json"})
+    assert response.status_code == 200
+    body = await response.get_json()
+
+    pending = {q["question_id"]: q for q in body["pending"]}
+    assert pending[answered_id]["viewer_has_responded"] is True
+    assert pending[untouched_id]["viewer_has_responded"] is False
+
+    recent = {q["question_id"]: q for q in body["recent"]}
+    assert recent[answered_id]["viewer_has_responded"] is True
+    assert recent[untouched_id]["viewer_has_responded"] is False
+
+
+async def test_list_viewer_has_responded_ignores_other_voters(
+    app, stub_session, seed_questions, seed_response
+):
+    """Somebody else's vote must not mark the question as answered by us."""
+    [question_id] = seed_questions(app, count=1)
+    seed_response(app, question_id=question_id, voter="bob", value="+1")
+
+    client = app.test_client()
+    body = await (await client.get("/api/list", headers={"Accept": "application/json"})).get_json()
+    assert body["pending"][0]["viewer_has_responded"] is False
+
+
+async def test_list_viewer_has_responded_survives_an_amendment(
+    app, stub_session, seed_questions, seed_response
+):
+    """Responses are append-only (§7.2), so a second row keeps the flag True."""
+    [question_id] = seed_questions(app, count=1)
+    seed_response(app, question_id=question_id, voter="alice", value="+1")
+    seed_response(app, question_id=question_id, voter="alice", value="-1")
+
+    client = app.test_client()
+    body = await (await client.get("/api/list", headers={"Accept": "application/json"})).get_json()
+    assert body["pending"][0]["viewer_has_responded"] is True
+
+
+async def test_question_detail_reports_viewer_has_responded(
+    app, stub_session, seed_questions, seed_response
+):
+    [question_id] = seed_questions(app, count=1)
+    client = app.test_client()
+
+    before = await (
+        await client.get(f"/api/question/{question_id}", headers={"Accept": "application/json"})
+    ).get_json()
+    assert before["question"]["viewer_has_responded"] is False
+
+    seed_response(app, question_id=question_id, voter="alice", value="+1")
+    after = await (
+        await client.get(f"/api/question/{question_id}", headers={"Accept": "application/json"})
+    ).get_json()
+    assert after["question"]["viewer_has_responded"] is True
+
+
+async def test_question_detail_viewer_has_responded_false_for_anonymous(
+    app, seed_questions, seed_response
+):
+    """No session means no responses to match, whoever else has voted."""
+    [question_id] = seed_questions(app, count=1)
+    seed_response(app, question_id=question_id, voter="alice", value="+1")
+
+    client = app.test_client()
+    body = await (
+        await client.get(f"/api/question/{question_id}", headers={"Accept": "application/json"})
+    ).get_json()
+    assert body["question"]["viewer_has_responded"] is False
+
+
 async def test_publist_is_public_and_excludes_private(app, seed_questions):
     """SPEC §9.13: /api/publist must be reachable without auth and must
     omit every is_private=1 row regardless of status."""
@@ -281,6 +360,9 @@ async def test_publist_viewer_is_binding_is_false_for_anonymous(app, seed_questi
     body = await response.get_json()
     assert body["questions"]
     assert all(q["viewer_is_binding"] is False for q in body["questions"])
+    # Same reasoning for viewer_has_responded: an anonymous caller has no
+    # responses of their own to match against (SPEC §8.3).
+    assert all(q["viewer_has_responded"] is False for q in body["questions"])
 
 
 # ---------------------------------------------------------------------------

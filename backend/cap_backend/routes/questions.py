@@ -118,16 +118,24 @@ async def list_pending() -> Any:
         return _insufficient_scope(PUBLIC_SCOPE)
 
     db = current_app.extensions["cap_db"]
-    # `pending`: open questions, soonest-to-close first.
+    # `pending`: open questions, soonest-to-close first. The EXISTS column
+    # carries `viewer_has_responded` (§8.3) for the whole page in one query;
+    # the dashboard marks the rows the caller has already answered rather
+    # than asking per question.
     open_rows = db.conn.execute(
         """
         SELECT question_id, request_id, project_id, title, description, requester,
                target_audience, approval_type, response_option_json, is_binding,
-               is_private, permalink, status, outcome, closes_at, created_at, updated_at
+               is_private, permalink, status, outcome, closes_at, created_at, updated_at,
+               EXISTS (
+                   SELECT 1 FROM responses r
+                    WHERE r.question_id = questions.question_id AND r.voter = ?
+               ) AS viewer_has_responded
           FROM questions
          WHERE status = 'open'
          ORDER BY closes_at ASC, question_id ASC
-        """
+        """,
+        (user.uid,),
     ).fetchall()
 
     # `recent`: every question (any status) whose updated_at falls within the
@@ -141,24 +149,38 @@ async def list_pending() -> Any:
         """
         SELECT question_id, request_id, project_id, title, description, requester,
                target_audience, approval_type, response_option_json, is_binding,
-               is_private, permalink, status, outcome, closes_at, created_at, updated_at
+               is_private, permalink, status, outcome, closes_at, created_at, updated_at,
+               EXISTS (
+                   SELECT 1 FROM responses r
+                    WHERE r.question_id = questions.question_id AND r.voter = ?
+               ) AS viewer_has_responded
           FROM questions
          WHERE updated_at >= ?
          ORDER BY updated_at DESC, question_id DESC
         """,
-        (cutoff.isoformat(timespec="seconds").replace("+00:00", "Z"),),
+        (user.uid, cutoff.isoformat(timespec="seconds").replace("+00:00", "Z")),
     ).fetchall()
 
     pending: list[Question] = []
     for row in open_rows:
-        question = dao.row_to_question(row, viewer=user, now=now)
+        question = dao.row_to_question(
+            row,
+            viewer=user,
+            now=now,
+            has_responded=bool(row["viewer_has_responded"]),
+        )
         if not can_view_question(user, question):
             continue
         pending.append(question)
 
     recent: list[Question] = []
     for row in recent_rows:
-        question = dao.row_to_question(row, viewer=user, now=now)
+        question = dao.row_to_question(
+            row,
+            viewer=user,
+            now=now,
+            has_responded=bool(row["viewer_has_responded"]),
+        )
         if not can_view_question(user, question):
             continue
         recent.append(question)
@@ -343,7 +365,13 @@ async def get_question(question_id: int) -> Any:
     if row is None:
         return jsonify({"error": "not_found"}), 404
 
-    question = dao.row_to_question(row, viewer=viewer)
+    question = dao.row_to_question(
+        row,
+        viewer=viewer,
+        has_responded=(
+            user is not None and dao.viewer_has_responded(db.conn, question_id, user.uid)
+        ),
+    )
     if not can_view_question(viewer, question):
         return jsonify({"error": "not_found"}), 404
 
@@ -411,7 +439,11 @@ async def edit_question(data: EditQuestionRequest, question_id: int) -> Any:
 
     updated_row = dao.fetch_question_row(db.conn, question_id)
     assert updated_row is not None
-    updated = dao.row_to_question(updated_row, viewer=user)
+    updated = dao.row_to_question(
+        updated_row,
+        viewer=user,
+        has_responded=dao.viewer_has_responded(db.conn, question_id, user.uid),
+    )
 
     if diff:
         changed = ", ".join(sorted(diff.keys()))
@@ -570,7 +602,11 @@ async def resolve_question(question_id: int) -> Any:
 
     final_row = dao.fetch_question_row(db.conn, question_id)
     assert final_row is not None
-    final = dao.row_to_question(final_row, viewer=user)
+    final = dao.row_to_question(
+        final_row,
+        viewer=user,
+        has_responded=dao.viewer_has_responded(db.conn, question_id, user.uid),
+    )
     _notify(
         "resolved",
         final,
@@ -832,7 +868,13 @@ async def get_resolution(question_id: int) -> Any:
     if row is None:
         return jsonify({"error": "not_found"}), 404, no_store
 
-    question = dao.row_to_question(row, viewer=viewer)
+    question = dao.row_to_question(
+        row,
+        viewer=viewer,
+        has_responded=(
+            user is not None and dao.viewer_has_responded(db.conn, question_id, user.uid)
+        ),
+    )
     if not can_view_question(viewer, question):
         # ACL denial collapses into 404 so private questions stay hidden (§7.5).
         return jsonify({"error": "not_found"}), 404, no_store

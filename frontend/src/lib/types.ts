@@ -83,6 +83,10 @@ export interface Question {
   status: QuestionStatus;
   outcome?: QuestionOutcome | null;
   viewer_is_binding: boolean;
+  // Server-computed per request: has *this* caller already submitted a
+  // response? Responses are append-only, so an amendment keeps it true.
+  // Always false for anonymous callers (they have no responses to match).
+  viewer_has_responded: boolean;
   time_remaining_seconds: number;
 }
 

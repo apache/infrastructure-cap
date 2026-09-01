@@ -54,6 +54,12 @@ def test_question_round_trip():
     assert again == q
 
 
+def test_question_viewer_has_responded_defaults_to_false():
+    """Absent on the wire means "this caller has not responded" (SPEC §8.3)."""
+    q = Question.model_validate(_question_payload())
+    assert q.viewer_has_responded is False
+
+
 def test_question_extra_field_forbidden():
     with pytest.raises(ValidationError):
         Question.model_validate(_question_payload(unknown_field=1))
