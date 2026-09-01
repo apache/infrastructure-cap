@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class VoteOption(BaseModel):
@@ -13,10 +13,26 @@ class VoteOption(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["vote"] = "vote"
+    # A ballot needs at least two distinct choices to be meaningful: a
+    # single-value set (e.g. just "+1") leaves voters no way to abstain or
+    # oppose, so reject it at the source (see issue #34). The four-value
+    # default stays the sensible common case.
     allowed_values: list[Literal["+1", "+0", "-0", "-1"]] = Field(
         default_factory=lambda: ["+1", "+0", "-0", "-1"],
+        min_length=2,
     )
     allow_comment: bool = True
+
+    @field_validator("allowed_values")
+    @classmethod
+    def _at_least_two_distinct(
+        cls, values: list[str]
+    ) -> list[str]:
+        # min_length=2 alone would accept ["+1", "+1"]; require two
+        # *distinct* choices so the ballot is genuinely meaningful.
+        if len(set(values)) < 2:
+            raise ValueError("allowed_values must contain at least two distinct values")
+        return values
 
 
 class LazyConsensusOption(BaseModel):

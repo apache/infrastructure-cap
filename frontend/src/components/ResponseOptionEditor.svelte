@@ -55,13 +55,20 @@
   function toggleValue(v: VoteValue) {
     if (value.kind !== "vote") return;
     const has = value.allowed_values.includes(v);
+    // A ballot needs at least two choices to be meaningful (issue #34):
+    // block the uncheck that would leave a single value, matching the
+    // backend's min_length=2. Keep the box checked and explain why.
+    if (has && value.allowed_values.length <= 2) {
+      warning = "A vote needs at least two allowed values.";
+      return;
+    }
     let next = has
       ? value.allowed_values.filter((x) => x !== v)
       : [...value.allowed_values, v];
     if (approvalType === "unanimous_approval" && !next.includes("-1")) {
       next = [...next, "-1"];
     }
-    if (next.length === 0) next = [v];
+    warning = "";
     value = { ...value, allowed_values: next };
   }
 
