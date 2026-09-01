@@ -358,7 +358,7 @@ backend spec:
 | "Mark this question private" checkbox | the selected `project_id` is in `session.committees`                      |
 | "Edit" / "Withdraw" / "Resolve" links | `question.requester === session.uid` or `session.isRoot`, and `status==='open'` |
 | "Respond" form                        | `question.status === 'open'` and `question` is in `/list` (see section 7); labelled "Update response" when `question.viewer_has_responded` |
-| "All projects" dashboard switch       | `session.isRoot === true` or `session.committees.includes("tooling")` (privileged viewers); see section 8.2 |
+| "All projects" dashboard switch       | any logged-in viewer (`session.status === "ready"`); see section 8.2 |
 
 The frontend never tries to derive view-access for a private
 question by itself; instead it relies on the fact that
@@ -481,26 +481,35 @@ Within each tab:
 - A search/filter input at the top filters by title and project
   client-side. Filtering does NOT touch the backend.
 - An **"All projects"** Bootstrap form-switch sits immediately to
-  the right of the filter input. It is rendered **only** for
-  privileged viewers, defined as `session.isRoot === true` or
-  `session.committees.includes("tooling")`; non-privileged viewers
-  never see the switch because the backend has already narrowed
-  `/list` to their audience. The switch controls the project
-  scope of both tabs:
-  - **Off (default).** Both tabs are restricted to questions whose
-    `project_id` is in the viewer's `session.projects` or
-    `session.committees`. This is the same scope a non-privileged
-    viewer would have, so a root or `tooling` member can run the
-    dashboard "as themselves" without being drowned in cross-project
-    traffic.
-  - **On.** No project restriction is applied; the viewer sees
-    every question the backend returned. This matches the
-    pre-switch behavior for root/`tooling` viewers and is what
-    they want when triaging activity across the foundation.
+  the right of the filter input, for **every logged-in viewer**. It
+  exists because `/list` is not narrowed to the caller's own
+  projects: the backend returns every question its ACL lets the
+  caller see (section 9.1 of the backend spec), which for an ordinary
+  committer is most of the foundation's public traffic. The
+  narrowing is therefore the dashboard's job, and the switch controls
+  the project scope of both tabs:
+  - **Off (default).** Both tabs keep only questions whose
+    `project_id` appears in the viewer's `session.projects` or
+    `session.committees`, i.e. projects the viewer is a committer or
+    committee member of. This is the working set: the questions the
+    viewer can be expected to have an opinion on.
+  - **On.** No project restriction is applied; the viewer sees every
+    question the backend returned. That is what a root or `tooling`
+    member wants when triaging across the foundation, and what
+    anyone else wants when looking beyond their own projects.
+  Anonymous viewers do not get the switch: `/publist` is already the
+  whole public feed and they have no projects to scope to.
   The switch's label is intentionally terse ("All projects") and
   carries an explanatory `title` tooltip. The state is component-
   local and resets to "off" on every page load; persisting it is
   out of scope for this iteration.
+- When the scope empties a tab, its empty state names the cost:
+  "N questions on other projects are hidden. Turn on 'All projects'
+  above to include them." Each tab counts its own feed, so the
+  awaiting tab reports hidden *open* questions rather than the whole
+  14-day window. Without that line an empty inbox is ambiguous
+  between "nothing to do" and "nothing to do here", and the switch
+  is easy to miss.
 - Sorting differs per tab, because the two tabs answer different
   questions. "Awaiting your response" is an urgency inbox. `status ===
   "open"` is not the same as "still taking responses": the backend
@@ -1127,8 +1136,11 @@ Coverage by area:
 - **`QuestionList`** (`tests/QuestionList.test.ts`): the two tabs
   partition `/list` correctly; the search input filters
   client-side without re-fetching; the "All projects" switch is
-  rendered only for `isRoot` and `tooling` viewers, defaults to
-  off, and toggles the project-scope filter on both tabs; each tab
+  rendered for every logged-in viewer and never for an anonymous one,
+  defaults to off (both tabs restricted to `session.projects` +
+  `session.committees`), and lets the full feed through when on; an
+  empty tab under the default scope names how many questions the
+  scope is hiding; each tab
   paginates at five rows with no controls at or below that length,
   keeps a per-tab cursor, and resets to page 1 when the filter or
   project scope changes; "Recent activity" is ordered by

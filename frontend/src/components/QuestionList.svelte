@@ -49,15 +49,14 @@
     pane?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  // Privileged viewers (root or members of the `tooling` committee) receive
-  // every question from /list, including those outside their own projects.
-  // The "All projects" switch lets them narrow the view back down to just
-  // their own projects/committees without having to log out. Non-privileged
-  // viewers always see only what the backend has already filtered for them,
-  // so the switch is hidden for them. Anonymous viewers always see every
-  // public question and the switch is meaningless to them.
-  $: isPrivilegedViewer =
-    !!user && (user.isRoot || user.committees.includes("tooling"));
+  // /list is not narrowed to the caller's own projects: the backend
+  // returns every question the ACL lets them see, which for an ordinary
+  // committer is most of the foundation's public traffic. So the
+  // dashboard scopes it here instead, defaulting both tabs to questions
+  // on projects the viewer is a committer or committee member of, and
+  // offering the "All projects" switch to anyone logged in who wants the
+  // unfiltered feed. Anonymous viewers see every public question by
+  // definition, so the switch is hidden for them.
   let showAllProjects = false;
 
   function isOwnProject(q: Question): boolean {
@@ -109,24 +108,22 @@
     );
   }
 
-  // Awaiting tab scope: privileged viewers with the switch OFF see only
-  // questions on their own projects/committees; everyone else sees the full
-  // /list result (the backend has already filtered for non-privileged
-  // viewers).
-  $: inAwaitingScope = (q: Question) =>
-    !isPrivilegedViewer || showAllProjects || isOwnProject(q);
+  // Project scope, applied to both tabs so the switch means one thing.
+  // Off (the default) keeps only questions on the viewer's own projects
+  // or committees; on lets everything the backend returned through.
+  $: inScope = (q: Question) => !user || showAllProjects || isOwnProject(q);
 
-  // Recent tab scope: same idea, but non-privileged viewers are additionally
-  // restricted to their own projects (the dashboard's "Recent activity" tab
-  // is project-local even for users whose /list contains questions targeted
-  // at audiences they happen to be in). Anonymous viewers have no project
-  // scope at all, so every public question passes.
-  $: inRecentScope = (q: Question) =>
-    !user
-      ? true
-      : isPrivilegedViewer && showAllProjects
-        ? true
-        : isOwnProject(q);
+  // How many rows the scope is currently holding back, counted per tab
+  // from that tab's own feed. Drives the hint on an empty tab: "nothing
+  // here" and "nothing here *for your projects*" are different
+  // situations, and the viewer cannot tell them apart without being told.
+  $: scopeApplies = !!user && !showAllProjects;
+  $: awaitingHidden = scopeApplies
+    ? allOpen.filter((q) => !isOwnProject(q)).length
+    : 0;
+  $: recentHidden = scopeApplies
+    ? allRecent.filter((q) => !isOwnProject(q)).length
+    : 0;
 
   // When the SPA is in anonymous mode there is no "your" inbox, so the
   // Awaiting tab is suppressed and Recent becomes the only view.
@@ -149,7 +146,7 @@
   // is read when the list is (re)computed, so a question crossing its
   // deadline while the dashboard sits open re-sorts on the next refresh.
   $: awaiting = allOpen
-    .filter(inAwaitingScope)
+    .filter(inScope)
     .filter((q) => matchesFilter(q, filter))
     .sort((a, b) => {
       const aLive = secondsRemaining(a.closes_at) > 0;
@@ -164,13 +161,13 @@
 
   // "Recent activity": every question (open or closed) updated in the
   // past 14 days, as served by the backend's `recent` array. Project-
-  // scoped per `inRecentScope`. Sorted reverse-chronologically on the
+  // scoped per `inScope`. Sorted reverse-chronologically on the
   // question's last visible state change (`lastActivityAt`): a question
   // that just closed and one that was just filed both sort to the top,
   // which is what "recent activity" means. `question_id` descending
   // breaks ties so the order is stable across refetches.
   $: recent = allRecent
-    .filter(inRecentScope)
+    .filter(inScope)
     .filter((q) => matchesFilter(q, filter))
     .sort(
       (a, b) =>
@@ -238,10 +235,10 @@
         bind:value={filter}
         on:input={resetPages}
       />
-      {#if isPrivilegedViewer}
+      {#if user}
         <div
           class="form-check form-switch mb-0"
-          title="Show questions from every project. When off, only questions on your own projects or committees are shown."
+          title="Show questions from every project. When off (the default), only questions on projects you are a committer or committee member of are shown."
         >
           <input
             class="form-check-input"
@@ -290,6 +287,16 @@
             You have no open questions to vote on. New questions will appear
             here when they arrive.
           </p>
+          {#if awaitingHidden > 0}
+            <p class="small">
+              <i class="fa-solid fa-filter me-1"></i>
+              {awaitingHidden} question{awaitingHidden === 1 ? "" : "s"} on other
+              projects {awaitingHidden === 1 ? "is" : "are"} hidden. Turn on
+              "All projects" above to include {awaitingHidden === 1
+                ? "it"
+                : "them"}.
+            </p>
+          {/if}
         </div>
       {:else}
         <Pagination
@@ -324,6 +331,16 @@
             14 days will appear here, with a marker showing whether each
             is still open or already closed.
           </p>
+          {#if recentHidden > 0}
+            <p class="small">
+              <i class="fa-solid fa-filter me-1"></i>
+              {recentHidden} question{recentHidden === 1 ? "" : "s"} on other
+              projects {recentHidden === 1 ? "is" : "are"} hidden. Turn on
+              "All projects" above to include {recentHidden === 1
+                ? "it"
+                : "them"}.
+            </p>
+          {/if}
         {:else}
           <h5>No public questions to show.</h5>
           <p class="small">
