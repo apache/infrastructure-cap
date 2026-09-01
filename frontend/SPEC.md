@@ -577,6 +577,13 @@ Fields that the backend forbids changing in edit mode
 rendered read-only when `mode === "edit"`, with a small tooltip
 explaining why ("Cannot be changed once the question is filed").
 
+The `closes_at` field carries mode-aware help text, because a
+deadline reads as final and is not. In `create` mode it says the date
+can be moved out later, reopening voting even after the original date
+has passed. In `edit` mode it says what moving the date does, and when
+the deadline has already elapsed it says explicitly that a future date
+reopens the question and that existing responses are kept.
+
 On submit:
 
 - `mode === "create"`: `POST {API_BASE}/question` with a
@@ -702,6 +709,23 @@ content depends on `question.status`:
 The client-side tally is **never** authoritative. The backend's
 resolve action is the source of truth; the panel just gives users
 a fast read on where the question stands.
+
+A question keeps `status === "open"` after its deadline elapses, so
+the panel labels that window "Voting closed, pending resolution"
+(`src/lib/status.ts`). For the requester (and root) that window is a
+decision point, and `QuestionView` says so in an `alert-info` above
+the description, listing all three exits: resolve (freezes the tally,
+issues the permalink), withdraw (records no tally), or **edit the
+question and move `closes_at` into the future, which reopens it for
+responses**. The last one is easy to miss, since the Resolve button
+implies resolution is the only way forward, and it is what saves a
+vote that merely ran short of time. The backend allows it because
+`PATCH /question/{id}` refuses edits only once `status` leaves
+"open", not once the deadline passes (section 9.4 of the backend
+spec); every response already recorded survives the extension. The
+alert is shown only when `isPendingResolution()` holds *and* the
+viewer may edit; other viewers get the same fact, more briefly, from
+the pending-resolution tooltip.
 
 ### 8.7 `<ResponseTimeline>`
 
@@ -1089,6 +1113,13 @@ Coverage by area:
   question is still taking responses); `viewer_has_responded` swaps the
   action to "Update response" and adds the "you responded" chip; a
   read-only card renders neither.
+- **Deadline-extension messaging** (`tests/deadline-extension.test.ts`):
+  `QuestionForm` renders the create-mode, edit-mode, and
+  deadline-already-passed variants of the `closes_at` help text;
+  `QuestionView` shows the three-exits alert only when the viewer may
+  edit a question that is past its deadline and still unresolved, and
+  not to other viewers nor while the question is still taking
+  responses.
 - **`ResponseForm`** (`tests/ResponseForm.test.ts`): for each
   `kind`, the form renders the correct controls; a binding `-1`
   on a `unanimous_approval` question without a comment cannot

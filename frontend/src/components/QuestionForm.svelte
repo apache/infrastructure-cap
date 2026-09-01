@@ -17,7 +17,7 @@
     DESCRIPTION_MAX_LENGTH,
   } from "../lib/limits";
   import { invalidateQuestion, pushToast } from "../lib/stores";
-  import { isoToLocalInput, localInputToIso } from "../lib/time";
+  import { isoToLocalInput, localInputToIso, secondsRemaining } from "../lib/time";
   import { audienceFor, ensureProjectNames, isKnownProject } from "../lib/projects";
   import ProjectPicker from "./ProjectPicker.svelte";
   import ApprovalTypeSelector from "./ApprovalTypeSelector.svelte";
@@ -29,6 +29,14 @@
   export let question: Question | null = null;
 
   const dispatch = createEventDispatcher<{ saved: Question }>();
+
+  // Editing a question whose deadline already elapsed is the supported
+  // way to reopen it: the backend only refuses edits once `status` leaves
+  // "open", so a later `closes_at` puts the question back in front of its
+  // voters. The field's help text says so, rather than leaving the
+  // requester to guess whether a passed deadline is final.
+  $: deadlineHasPassed =
+    question != null && secondsRemaining(question.closes_at) <= 0;
 
   function defaultClosesLocal(): string {
     const d = new Date(Date.now() + 7 * 86400 * 1000);
@@ -262,6 +270,18 @@
         />
         <div class="form-text">
           Sent to the server as UTC. Voters see a local-time countdown.
+          {#if mode === "create"}
+            You are not locked into this date: while the question is
+            unresolved you can edit it and move the deadline out, which
+            reopens voting even if the original date has already passed.
+          {:else if deadlineHasPassed}
+            Voting closed at this deadline. Moving it into the future
+            reopens the question for responses; every response already
+            recorded is kept.
+          {:else}
+            Moving this out extends the voting window; moving it in
+            closes the question sooner.
+          {/if}
         </div>
       </div>
 

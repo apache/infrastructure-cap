@@ -225,9 +225,11 @@
       <div class="wf-step-body">
         <div class="wf-step-title">5. Resolution</div>
         <div class="wf-step-text">
-          When the deadline elapses (or the requester explicitly calls
-          resolve), CAP runs the tally for the question's approval
-          type. The three cards below summarize the rules.
+          Once the deadline has elapsed, the requester resolves the
+          question and CAP runs the tally for its approval type. (Root
+          may also resolve early.) Resolution is an explicit step, not a
+          timer: reaching the deadline stops the voting, it does not
+          decide the outcome. The three cards below summarize the rules.
         </div>
 
         <div class="row g-3 mt-1">
@@ -334,6 +336,49 @@
       </div>
     </div>
   </div>
+
+  <h3 class="h5 mt-4 mb-2">
+    <i class="fa-regular fa-clock me-2 text-primary"></i>
+    What happens when the deadline is reached
+  </h3>
+
+  <p>
+    Reaching <code>closes_at</code> stops the voting and nothing else.
+    CAP refuses any further response from that moment, but it does not
+    tally, decide, or close anything on its own: the question stays
+    open and unresolved, and the dashboard marks it
+    <em>"voting closed, pending resolution"</em> until its requester
+    (or an ASF Infra root account) picks one of three options:
+  </p>
+
+  <ul>
+    <li>
+      <strong>Resolve it.</strong> CAP runs the tally for the
+      question's approval type, freezes the outcome, issues the
+      permalink, and posts the summary. This is the normal path, and it
+      is the only one that produces a verdict.
+    </li>
+    <li>
+      <strong>Withdraw it.</strong> The question is recorded as
+      <code>withdrawn</code> with no tally, which is the right move when
+      the question turned out to be moot or misphrased.
+    </li>
+    <li>
+      <strong>Extend the deadline.</strong> Editing the question and
+      moving its closing date into the future reopens it for responses,
+      even though the original deadline has already passed. Everything
+      already submitted is kept, so a vote that fell short of a quorum
+      can simply be given more time rather than being resolved as
+      <code>insufficient_votes</code> and refiled.
+    </li>
+  </ul>
+
+  <p>
+    Only the requester and root may do any of these, and only while the
+    question is unresolved. Once it resolves or is withdrawn it is
+    read-only for good, deadline included; from that point a new
+    question is the only way forward.
+  </p>
 
   <p class="text-muted small">
     A withdrawn question follows a shortened path: the requester

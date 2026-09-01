@@ -27,7 +27,8 @@ export function isPendingResolution(
 export function pendingResolutionTooltip(question: Question): string {
   return (
     `Voting closed at the deadline. This question is waiting for ` +
-    `${question.requester} to resolve or withdraw it.`
+    `${question.requester} to resolve it, withdraw it, or extend the ` +
+    `deadline so voting can resume.`
   );
 }
 

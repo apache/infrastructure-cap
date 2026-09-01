@@ -15,6 +15,7 @@
   import { cacheQuestion, invalidateQuestion, pushToast, session } from "../lib/stores";
   import { redirectToLogin } from "../lib/auth";
   import { formatLocal, secondsRemaining } from "../lib/time";
+  import { isPendingResolution } from "../lib/status";
   import type {
     QuestionDetail,
     StoredResponse,
@@ -88,6 +89,18 @@
     !!viewer &&
     canEdit(detail, viewer) &&
     (viewer.isRoot || deadlinePassed);
+
+  // Voting is over and nobody has resolved or withdrawn yet. For the
+  // requester (or root) this is a decision point, not a dead end: the
+  // backend refuses edits only once `status` leaves "open", so pushing
+  // `closes_at` out reopens the question for responses. Nothing on the
+  // page says so otherwise, and the Resolve button implies resolving is
+  // the only way forward.
+  $: awaitingOwnerDecision =
+    !!detail &&
+    !!viewer &&
+    isPendingResolution(detail.question, deadlinePassed) &&
+    canEdit(detail, viewer);
 
   function viewerPrior(
     d: QuestionDetail,
@@ -229,6 +242,27 @@
       {/if}
     </div>
   </div>
+
+  {#if awaitingOwnerDecision}
+    <div class="alert alert-info d-flex align-items-start" role="alert">
+      <i class="fa-solid fa-hourglass-half me-2 mt-1"></i>
+      <div>
+        <strong>Voting closed on {formatLocal(detail.question.closes_at)};
+          this question is yours to close out.</strong>
+        <div class="small mt-1">
+          Nothing is recorded until you act. You can
+          <strong>resolve</strong> it, which freezes the tally below and
+          issues a permalink; <strong>withdraw</strong> it, which records
+          no tally at all; or
+          <a href="/question/{detail.question.question_id}/edit" use:link>
+            edit the question
+          </a>
+          and move the closing date into the future, which reopens it for
+          responses. Every response already recorded is kept either way.
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <div class="card mb-3">
     <div class="card-body">
