@@ -30,3 +30,25 @@ export function pendingResolutionTooltip(question: Question): string {
     `${question.requester} to resolve or withdraw it.`
   );
 }
+
+// When the question stopped accepting responses, or `null` while it is
+// still taking them. The API surfaces no resolution timestamp
+// (`updated_at` is persistence-only, per backend SPEC §7.1), but it does
+// not need to: the backend refuses every response from `closes_at`
+// onwards, and only root may resolve a question before that moment, so
+// the deadline is the instant a closed question closed. A question that
+// was withdrawn (or root-resolved) while the clock was still running has
+// no viewer-visible closing time at all, hence `null`.
+export function closedAt(
+  question: Question,
+  deadlinePassed?: boolean,
+): string | null {
+  const passed = deadlinePassed ?? secondsRemaining(question.closes_at) <= 0;
+  return passed ? question.closes_at : null;
+}
+
+// The timestamp the dashboard sorts a question on: the last state change
+// the viewer can see, which is either its closing or its filing.
+export function lastActivityAt(question: Question): string {
+  return closedAt(question) ?? question.created_at;
+}

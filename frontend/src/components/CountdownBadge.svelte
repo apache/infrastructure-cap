@@ -4,6 +4,7 @@
     secondsRemaining,
     formatCountdown,
     formatCountdownAria,
+    formatLocal,
   } from "../lib/time";
 
   export let closesAt: string;
@@ -29,6 +30,15 @@
     if (interval) clearInterval(interval);
   });
 
+  // The digits alone ("2d 0h") do not say what is being counted, and the
+  // badge sits on a dashboard card with no surrounding label. A native
+  // title tooltip (the app initializes no Bootstrap JS tooltips) names
+  // the deadline the timer runs to, in the viewer's local time.
+  $: tooltip =
+    remaining > 0
+      ? `Time left to respond. Voting closes ${formatLocal(closesAt)}.`
+      : `Voting closed ${formatLocal(closesAt)}. Responses are no longer accepted.`;
+
   $: cls =
     remaining <= 0
       ? "bg-dark"
@@ -39,7 +49,18 @@
           : "bg-secondary";
 </script>
 
-<span class="badge {cls}" aria-label={formatCountdownAria(remaining)}>
+<span
+  class="badge countdown {cls}"
+  title={tooltip}
+  aria-label={formatCountdownAria(remaining)}
+>
   <i class="fa-regular fa-clock me-1"></i>
   {formatCountdown(remaining)}
 </span>
+
+<style>
+  /* Hints that there is something to hover for. */
+  .countdown {
+    cursor: help;
+  }
+</style>

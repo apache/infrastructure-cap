@@ -1,9 +1,10 @@
 <script lang="ts">
   import { link } from "svelte-spa-router";
   import type { Question } from "../lib/types";
-  import { secondsRemaining } from "../lib/time";
+  import { formatLocal, formatRelative, secondsRemaining } from "../lib/time";
   import {
     PENDING_RESOLUTION_LABEL,
+    closedAt,
     isPendingResolution,
     pendingResolutionTooltip,
   } from "../lib/status";
@@ -75,6 +76,19 @@
   $: outcomeTooltip = pendingResolution
     ? pendingResolutionTooltip(question)
     : null;
+
+  // Age markers. "Filed" is always available; "closed" only once the
+  // question has stopped taking responses, which is the deadline for
+  // every question the viewer can date (see `closedAt`). Both carry the
+  // absolute local timestamp as a native tooltip, since the relative
+  // form is the scannable one but the exact time is what people quote.
+  $: filedAgo = formatRelative(question.created_at);
+  $: filedTooltip = `Filed ${formatLocal(question.created_at)}`;
+  $: closedTimestamp = closedAt(question, deadlinePassed);
+  $: closedAgo = closedTimestamp ? formatRelative(closedTimestamp) : null;
+  $: closedTooltip = closedTimestamp
+    ? `Voting closed ${formatLocal(closedTimestamp)}`
+    : null;
 </script>
 
 <div class="card q-card {outcomeClass} mb-2">
@@ -102,6 +116,14 @@
             <i class={outcomeIcon}></i>
             {outcomeLabel}
           </span>
+          <span class="small text-muted" title={filedTooltip}>
+            <i class="fa-solid fa-calendar-plus me-1"></i>filed {filedAgo}
+          </span>
+          {#if closedAgo}
+            <span class="small text-muted" title={closedTooltip}>
+              <i class="fa-solid fa-flag-checkered me-1"></i>closed {closedAgo}
+            </span>
+          {/if}
         </div>
       </div>
       <div class="text-end">

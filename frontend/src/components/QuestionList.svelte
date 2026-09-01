@@ -2,8 +2,14 @@
   import { onMount } from "svelte";
   import type { Question, UserSession } from "../lib/types";
   import { api } from "../lib/api";
+  import { lastActivityAt } from "../lib/status";
   import QuestionCard from "./QuestionCard.svelte";
   import ErrorAlert from "./ErrorAlert.svelte";
+  import Pagination from "./Pagination.svelte";
+
+  // Rows per page. Lists at or below this length render whole, with no
+  // page controls at all (see Pagination).
+  const PAGE_SIZE = 5;
 
   // ``null`` means the viewer is anonymous (no session). In that case the
   // list is sourced from /api/publist (which only ever returns public
@@ -17,6 +23,30 @@
   let errorMsg: string | null = null;
   let activeTab: "awaiting" | "recent" = "awaiting";
   let filter = "";
+  // One page cursor per tab, so switching tabs does not scroll the other
+  // list back to its top. Both are 1-based.
+  let awaitingPage = 1;
+  let recentPage = 1;
+
+  // Anything that re-partitions the lists (a new filter, a scope change,
+  // a refetch) makes the old page numbers meaningless: page 3 of a
+  // 40-question list is nowhere in a 4-question one. Start over at the
+  // top instead of showing the viewer an empty page.
+  function resetPages(): void {
+    awaitingPage = 1;
+    recentPage = 1;
+  }
+
+  // The pane holding the rows. Paging from the control *below* a full
+  // page of cards would otherwise leave the viewer at the bottom of the
+  // new page, looking at its last row.
+  let pane: HTMLDivElement | undefined;
+
+  function goToPage(which: "awaiting" | "recent", page: number): void {
+    if (which === "awaiting") awaitingPage = page;
+    else recentPage = page;
+    pane?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // Privileged viewers (root or members of the `tooling` committee) receive
   // every question from /list, including those outside their own projects.
@@ -40,6 +70,7 @@
   async function load() {
     loading = true;
     errorMsg = null;
+    resetPages();
     try {
       if (user) {
         const data = await api.list();
@@ -115,18 +146,42 @@
 
   // "Recent activity": every question (open or closed) updated in the
   // past 14 days, as served by the backend's `recent` array. Project-
-  // scoped per `inRecentScope`. Sorted: open questions first (soonest
-  // to expire), then closed/withdrawn (most recently expired last).
+  // scoped per `inRecentScope`. Sorted reverse-chronologically on the
+  // question's last visible state change (`lastActivityAt`): a question
+  // that just closed and one that was just filed both sort to the top,
+  // which is what "recent activity" means. `question_id` descending
+  // breaks ties so the order is stable across refetches.
   $: recent = allRecent
     .filter(inRecentScope)
     .filter((q) => matchesFilter(q, filter))
-    .sort((a, b) => {
-      const aOpen = a.status === "open";
-      const bOpen = b.status === "open";
-      if (aOpen !== bOpen) return aOpen ? -1 : 1;
-      if (aOpen) return Date.parse(a.closes_at) - Date.parse(b.closes_at);
-      return Date.parse(b.closes_at) - Date.parse(a.closes_at);
-    });
+    .sort(
+      (a, b) =>
+        Date.parse(lastActivityAt(b)) - Date.parse(lastActivityAt(a)) ||
+        b.question_id - a.question_id,
+    );
+
+  // The cursor actually rendered. A list can shrink under its page
+  // between renders (a question resolves out of scope, a refresh returns
+  // fewer rows), so the stored cursor is clamped on the way out rather
+  // than written back: page 4 of a list that just lost its tail shows
+  // the new last page instead of an empty pane.
+  $: awaitingCursor = Math.min(
+    awaitingPage,
+    Math.max(1, Math.ceil(awaiting.length / PAGE_SIZE)),
+  );
+  $: recentCursor = Math.min(
+    recentPage,
+    Math.max(1, Math.ceil(recent.length / PAGE_SIZE)),
+  );
+
+  $: awaitingPageRows = awaiting.slice(
+    (awaitingCursor - 1) * PAGE_SIZE,
+    awaitingCursor * PAGE_SIZE,
+  );
+  $: recentPageRows = recent.slice(
+    (recentCursor - 1) * PAGE_SIZE,
+    recentCursor * PAGE_SIZE,
+  );
 
   onMount(load);
 </script>
@@ -163,6 +218,7 @@
         class="form-control form-control-sm"
         placeholder="Filter by title or project..."
         bind:value={filter}
+        on:input={resetPages}
       />
       {#if isPrivilegedViewer}
         <div
@@ -175,6 +231,7 @@
             role="switch"
             id="cap-all-projects-switch"
             bind:checked={showAllProjects}
+            on:change={resetPages}
           />
           <label
             class="form-check-label small text-nowrap"
@@ -193,7 +250,7 @@
     </li>
   </ul>
 
-  <div class="border border-top-0 rounded-bottom p-3 bg-white">
+  <div class="border border-top-0 rounded-bottom p-3 bg-white" bind:this={pane}>
     {#if loading}
       <div class="spin-center">
         <i class="fa-solid fa-circle-notch fa-spin me-2"></i>Loading...
@@ -217,9 +274,25 @@
           </p>
         </div>
       {:else}
-        {#each awaiting as q (q.question_id)}
+        <Pagination
+          variant="top"
+          page={awaitingCursor}
+          total={awaiting.length}
+          pageSize={PAGE_SIZE}
+          label="Awaiting your response pages"
+          onChange={(p) => goToPage("awaiting", p)}
+        />
+        {#each awaitingPageRows as q (q.question_id)}
           <QuestionCard question={q} readOnly={!user} />
         {/each}
+        <Pagination
+          variant="bottom"
+          page={awaitingCursor}
+          total={awaiting.length}
+          pageSize={PAGE_SIZE}
+          label="Awaiting your response pages"
+          onChange={(p) => goToPage("awaiting", p)}
+        />
       {/if}
     {:else if recent.length === 0}
       <div class="empty-state">
@@ -242,9 +315,25 @@
         {/if}
       </div>
     {:else}
-      {#each recent as q (q.question_id)}
+      <Pagination
+        variant="top"
+        page={recentCursor}
+        total={recent.length}
+        pageSize={PAGE_SIZE}
+        label={user ? "Recent activity pages" : "Public questions pages"}
+        onChange={(p) => goToPage("recent", p)}
+      />
+      {#each recentPageRows as q (q.question_id)}
         <QuestionCard question={q} readOnly={!user} />
       {/each}
+      <Pagination
+        variant="bottom"
+        page={recentCursor}
+        total={recent.length}
+        pageSize={PAGE_SIZE}
+        label={user ? "Recent activity pages" : "Public questions pages"}
+        onChange={(p) => goToPage("recent", p)}
+      />
     {/if}
   </div>
 </div>

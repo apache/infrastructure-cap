@@ -128,6 +128,7 @@ frontend/
     │   ├── ToastHost.svelte    # site-wide ephemeral notifications
     │   ├── QuestionCard.svelte # one row in the dashboard tabs
     │   ├── QuestionList.svelte # the two-tab pane (see section 8.2)
+    │   ├── Pagination.svelte   # page controls for a paginated list
     │   ├── QuestionForm.svelte # shared create/edit form
     │   ├── ResponseOptionEditor.svelte  # discriminated-union builder
     │   ├── ResponseForm.svelte # voter-side response submission
@@ -422,6 +423,24 @@ One card per row in the dashboard tabs. Renders, in a Bootstrap
   outcome (`approved` / `vetoed` / `insufficient_votes` /
   `withdrawn`) for closed ones, with a Font Awesome icon per
   outcome.
+- Alongside the outcome, two age markers in muted small text, each
+  carrying its absolute local timestamp as a native `title` tooltip
+  (the relative form is what makes a list scannable; the absolute one
+  is what people quote):
+  - "filed <relative>" (`fa-calendar-plus`), from `created_at`, always
+    shown.
+  - "closed <relative>" (`fa-flag-checkered`), shown only once the
+    question has stopped accepting responses. The API surfaces no
+    resolution timestamp (`updated_at` is persistence-only, per section
+    7.1 of the backend spec), and it does not need to: the backend
+    refuses every response from `closes_at` onwards and only root may
+    resolve a question earlier, so `closes_at` *is* the moment a closed
+    question closed. This covers both closed cases: an expired deadline
+    with nobody having resolved it yet, and a resolved question. A
+    question withdrawn (or root-resolved) while its clock was still
+    running has no viewer-visible closing time, so the marker is
+    omitted; its `withdrawn` outcome already says it is closed. The
+    helper is `closedAt()` in `src/lib/status.ts`.
 - Right side: a "Respond" button (open + caller is in the question's
   audience) or a "View tally" button (closed).
 
@@ -473,9 +492,38 @@ Within each tab:
   carries an explanatory `title` tooltip. The state is component-
   local and resets to "off" on every page load; persisting it is
   out of scope for this iteration.
-- Sorting is newest first by `created_at` for "Recent activity" and
-  by ascending `closes_at` for "Awaiting your response" (so the
-  soonest-to-close items are at the top).
+- Sorting differs per tab, because the two tabs answer different
+  questions. "Awaiting your response" is an urgency inbox: ascending
+  `closes_at`, so the soonest-to-close items are at the top.
+  "Recent activity" is reverse-chronological on each question's last
+  viewer-visible state change, `lastActivityAt()` in
+  `src/lib/status.ts`, which is its closing time if it has closed and
+  its `created_at` otherwise. A question that just closed and one that
+  was just filed therefore both sort to the top, which is what "recent
+  activity" means. `question_id` descending breaks ties so the order is
+  stable across refetches. (The backend already returns `recent` in
+  `updated_at DESC` order, but the frontend re-sorts because `/publist`
+  orders open questions first and because `updated_at` is not on the
+  wire.)
+- Both tabs paginate client-side at **five rows per page**, via
+  `<Pagination>`. A list of five or fewer renders whole, with no page
+  controls at all. Each tab owns its own 1-based cursor, so switching
+  tabs does not reset the other list. Anything that re-partitions a
+  list, editing the filter, flipping "All projects", or hitting
+  refresh, sends both cursors back to page 1, since page 3 of a
+  40-question list is nowhere in a 4-question one; a cursor left
+  beyond the end by a shrinking list is clamped rather than rendering
+  an empty page. Pagination is purely a display concern: the empty
+  state, the per-tab count badges, and the "Showing m-n of N (page i of
+  k)" line all count the full filtered list.
+- The rows are **bracketed by two identical controls**, one above and
+  one below. Five question cards are taller than a laptop viewport, so
+  a control only at the foot of the list is below the fold on first
+  paint and the page reads as if the older entries were simply cropped.
+  The one above is what makes the truncation legible; the one below is
+  where the reader ends up. Changing page from either scrolls the list
+  pane back into view, so the viewer lands on the first row of the new
+  page rather than its last.
 - An empty state shows a Font Awesome icon and the text
   "Nothing here. (Awaiting your response: you have no open
   questions to vote on.)" or the equivalent message for the
@@ -676,6 +724,15 @@ decrements the remaining time locally, and re-renders. When the
 value crosses zero, the chip switches to "Closed" with a clock
 icon, and a custom event is dispatched so the parent can refetch
 the question detail.
+
+The digits alone do not say what is being counted, and on a dashboard
+card the badge has no label beside it, so the badge carries a native
+`title` tooltip (this app initializes no Bootstrap JS tooltips) naming
+the deadline the timer runs to, in the viewer's local time: "Time left
+to respond. Voting closes 24 Aug 2026, 14:00." Once the timer reaches
+zero it becomes "Voting closed 24 Aug 2026, 14:00. Responses are no
+longer accepted." The badge is styled `cursor: help` so there is a hint
+that hovering says more.
 
 The badge color follows Bootstrap's contextual classes:
 
@@ -975,7 +1032,8 @@ plus a `fa-solid fa-circle-exclamation` icon on the left.
   announce new toasts.
 - The countdown badge's `aria-label` reads as
   "Closes in 2 days 14 hours"; the raw `mm:ss` digits are
-  visual-only.
+  visual-only, and its `title` names the deadline they count to
+  (section 8.8).
 - Keyboard shortcuts: `g d` returns to the dashboard, `g n`
   opens the new-question form. Both are documented in a `?` modal
   bound to the `?` key, which lists every shortcut.
@@ -1017,7 +1075,17 @@ Coverage by area:
   partition `/list` correctly; the search input filters
   client-side without re-fetching; the "All projects" switch is
   rendered only for `isRoot` and `tooling` viewers, defaults to
-  off, and toggles the project-scope filter on both tabs.
+  off, and toggles the project-scope filter on both tabs; each tab
+  paginates at five rows with no controls at or below that length,
+  keeps a per-tab cursor, and resets to page 1 when the filter or
+  project scope changes; "Recent activity" is ordered by
+  `lastActivityAt()` descending.
+- **`Pagination`** (`tests/Pagination.test.ts`): renders nothing for a
+  single page; windows the page numbers with ellipses for long lists;
+  disables Previous on the first page and Next on the last; reports
+  clicks through `onChange` clamped to the valid range. A paginated tab
+  renders exactly two of them, above and below the rows, showing the
+  same page.
 - **Contract test** (`tests/contract.test.ts`): fetches
   `GET {API_BASE}/api` against a running backend (in CI) and
   asserts that every field referenced by `src/lib/types.ts` is
