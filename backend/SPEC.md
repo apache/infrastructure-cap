@@ -332,15 +332,29 @@ Enforcement strategy:
    |--------------|-----------------|-------------------------------------|
    | `uid`        | `str`           | `asfquart.session.uid`              |
    | `committees` | `tuple[str,…]`  | `asfquart.session.committees`       |
+   | `projects`   | `tuple[str,…]`  | `asfquart.session.projects`         |
    | `is_root`    | `bool`          | `asfquart.session.isRoot`           |
    | `fullname`   | `str \| None`   | `asfquart.session.fullname`         |
    | `extras`     | `dict[str,Any]` | reserved for future session fields  |
 
    Handlers retrieve the user via `await current_user()` rather than
-   touching the session directly. The `committees` tuple is what
-   determines binding eligibility when a response is submitted (see
-   section 7.2) and gates `POST /api/question` on the caller's project
-   membership (see section 9.2).
+   touching the session directly.
+
+   The two membership tuples carry different privileges, and two
+   helpers in `cap_backend/auth.py` name the distinction:
+
+   - `is_committee_member(user, project_id)` — `project_id` appears in
+     `user.committees`, i.e. the caller sits on the project's PMC/PPMC.
+     This is the privileged affiliation: it determines binding
+     eligibility when a response is submitted (section 7.2), gates
+     filing a **private** question (section 9.2), and gates reading one
+     back (section 7.5).
+   - `is_project_member(user, project_id)` — `project_id` appears in
+     `user.projects` (committer access) **or** in `user.committees`. A
+     committee member always counts as a project member, whether or not
+     LDAP also lists them in the committer group. Project membership is
+     what gates `POST /api/question` (section 9.2): any member of a
+     project may ask a question, including one whose votes are binding.
 
 Authorization beyond "logged in" is layered on per route:
 
@@ -403,7 +417,8 @@ TOKEN_SCOPES: tuple[str, ...] = ("ask",)
 ```
 
 The handler returns a session dictionary matching the asfquart contract
-(`uid`, `committees`, `metadata.scope`, `isRoot`, `roleaccount`) so a
+(`uid`, `committees`, `projects`, `metadata.scope`, `isRoot`,
+`roleaccount`) so a
 caller may authenticate by sending:
 
 ```
@@ -470,9 +485,10 @@ capability is minting a **temporary** token at `GET /api/token`:
 - The temporary token is an ordinary `TokenStore` token: scope `["ask"]`,
   24h TTL, subject to the same five-per-UID cap and opportunistic expiry
   purge as any PAT. It is flagged `role_account = True`.
-- The temporary token may **create a question for any project**: the
-  `POST /api/question` committee-membership check is waived for a
-  role-account session (`AuthenticatedUser.is_role_account`).
+- The temporary token may **create a question for any project**, private
+  ones included: both the project-membership and the private-question
+  committee check in `POST /api/question` are waived for a role-account
+  session (`AuthenticatedUser.is_role_account`).
 - The temporary token may **resolve only questions its own uid created**.
   Resolution is gated by the normal requester check, which is *not* waived;
   since a role account is the `requester` of anything it files, it can
@@ -691,6 +707,12 @@ get a binding vote, and everyone else's submission is recorded as
 non-binding. `session.committees` is consulted exactly once, at the
 moment the response is written, and the result is frozen in this
 column.
+
+Note that `session.projects` (committer access) plays no part here:
+binding votes are committee-only. A project committer may *ask* a
+question whose votes are binding (section 9.2), but a vote they cast
+on one is recorded `is_binding = 0` like any other non-committee
+response.
 
 `is_veto` is also a denormalized snapshot. It is set to `1` only when
 all of the following hold at submission time:
@@ -1300,12 +1322,32 @@ paths under the same `/api/` namespace.
 Create a new question. All persisted fields originate here.
 
 - **Auth**: required.
-- **Authorization**: the caller must be authorized to file a request
-  on behalf of `project_id`. In this iteration that means
-  `project_id` must appear in the caller's `session.committees`; a
-  caller filing on behalf of a project they are not a member of
-  receives `403 Forbidden`. (Admin override is via the `/admin/`
-  endpoints in section 9.11, not here.)
+- **Authorization**: the caller must be a **member of the project**
+  they are filing on behalf of, i.e. `is_project_member(user,
+  project_id)` (section 6.2) must hold: `project_id` appears in
+  `session.projects` or in `session.committees`. A caller filing on
+  behalf of a project they have no affiliation with receives
+  `403 Forbidden` with `{"error": "not_project_member"}`. (Admin
+  override is via the `/admin/` endpoints in section 9.11, not here.)
+
+  Two privileges within the endpoint remain **committee-only**, so
+  `is_committee_member(user, project_id)` must additionally hold:
+
+  - `is_private = true`. A private question is announced on the
+    project's private list and only committee members (plus root, the
+    `tooling` committee, and the requester) can read it back afterwards
+    (section 7.5), so a caller who is only a committer would be posting
+    to a list they cannot follow. The attempt is refused with
+    `403 Forbidden` and `{"error": "not_committee_member"}`.
+  - Casting a **binding vote** on the question, which is not this
+    endpoint's business at all: it is decided per response, at
+    submission time, by section 7.2. `is_binding = true` is therefore
+    accepted from any project member — a committer may ask a question
+    that the committee answers with binding votes, and their own vote
+    on it is simply recorded as non-binding.
+
+  `session.isRoot` and role-account sessions (section 6.4.1) bypass
+  both checks and may file anything for any project.
 - **Request body**: `CreateQuestionRequest` (Pydantic), carrying
   every persisted column the caller controls: `project_id`, `title`,
   `description`, `target_audience`, `approval_type`, `is_binding`,
@@ -1330,8 +1372,11 @@ Create a new question. All persisted fields originate here.
   database write.
 - **Errors**: `400`/`422` (malformed body or unknown field — the
   request model uses `extra="forbid"`, so a client-supplied
-  `request_id` or `question_id` is rejected here), `403` (not on the
-  project's committee — root may file on behalf of any project). A
+  `request_id` or `question_id` is rejected here), `403`
+  (`not_project_member`: no affiliation with the project;
+  `not_committee_member`: `is_private = true` from a caller who is only
+  a committer — root and role accounts may file anything for any
+  project). A
   `409` from a `request_id` collision is not expected in practice
   because the server allocates the value, but the `UNIQUE` constraint
   on `questions.request_id` still guards against bugs in the
@@ -2122,13 +2167,18 @@ Coverage by area:
   Each test asserts the HTTP response, the audit-log row written,
   and the email captured by `captured_emails` (recipient, sender,
   subject prefix, threading). Authorization branches covered:
-  non-committee 403, non-requester 403, root override, early-
-  resolve restriction.
+  non-member `403 not_project_member`, a project committer filing a
+  binding question successfully (201, with `viewer_is_binding` false
+  for the asker), a project committer refused a private question
+  (`403 not_committee_member`), non-requester 403, root override,
+  early-resolve restriction.
 - **Response submission** (`test_responses.py`): end-to-end tests
   for `POST /api/question/{id}/responses` covering the happy path for
   each `kind` (vote, lazy_consensus, free_text), the veto rules
   (binding -1 without comment rejected as `400`, with comment
   recorded as `is_veto=1`, non-binding -1 recorded but never veto),
+  a project committer's vote on a binding question recorded
+  `is_binding=0` (section 7.2),
   veto withdrawal as an appended row, `response_option`
   compatibility (kind mismatch, value outside `allowed_values`,
   free-text overflow), `§7.4` acceptance ordering (deadline-passed
@@ -2144,9 +2194,11 @@ Coverage by area:
   already-resolved question returns 200 with the existing record
   and writes neither an audit row nor an email.
 - **Auth helpers** (`test_auth.py`): `is_public_path`, the
-  JSON-vs-HTML branch in the 401 hook, and every branch of
+  JSON-vs-HTML branch in the 401 hook, every branch of
   `can_view_question` (public, private + committee, private +
-  root, private + `tooling` committee, private + outsider).
+  root, private + `tooling` committee, private + committer-only,
+  private + outsider), and the `is_project_member` /
+  `is_committee_member` split from section 6.2.
 - **Config** (`test_config.py`): rejects unknown keys, honors the
   CLI/`CAP_CONFIG`/cwd/`/etc/cap/` resolution order, and folds
   `CAP_PUBSUB_PASSWORD` into the loaded settings.
@@ -2182,7 +2234,10 @@ ledger of where each decision lives so reviewers can audit the
 trail without re-reading the whole document.
 
 1. **Binding eligibility** is `questions.is_binding` plus a
-   committee-membership check (sections 7.2 and 8.3.1).
+   committee-membership check (sections 7.2 and 8.3.1). *Asking* is
+   gated one step lower, on project membership, so a committer may
+   file a question the committee then answers with binding votes
+   (section 9.2); private questions stay committee-only.
 2. **Audit log retention** is indefinite (section 7.3).
 3. **Admin endpoints** require `session.isRoot` via
    `@asfquart.auth.require(R.root)` (section 9.11).

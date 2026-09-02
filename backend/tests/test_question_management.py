@@ -84,10 +84,39 @@ async def test_create_private_question_uses_private_list(app, stub_session, capt
     assert captured_emails[0]["recipient"] == "private@seapony.apache.org"
 
 
-async def test_create_question_forbidden_for_non_committee(app, as_user, captured_emails):
-    as_user(AuthenticatedUser(uid="bob", committees=("other",)))
+async def test_create_question_forbidden_for_non_member(app, as_user, captured_emails):
+    as_user(AuthenticatedUser(uid="bob", committees=("other",), projects=("other",)))
     client = app.test_client()
     response = await client.post("/api/question", json=_create_body())
+    assert response.status_code == 403
+    body = await response.get_json()
+    assert body["error"] == "not_project_member"
+
+    assert _audit_rows(app) == []
+    assert captured_emails == []
+
+
+async def test_create_binding_question_allowed_for_committer(app, as_user, captured_emails):
+    """A committer who is not on the committee may still ask, even a binding
+    question: the binding flag governs voting, not asking (SPEC §9.2)."""
+    as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
+    client = app.test_client()
+    response = await client.post("/api/question", json=_create_body(is_binding=True))
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["requester"] == "carol"
+    assert body["is_binding"] is True
+    # The asker is not on the committee, so their own vote would not bind.
+    assert body["viewer_is_binding"] is False
+
+    assert captured_emails[0]["recipient"] == "dev@seapony.apache.org"
+
+
+async def test_create_private_question_forbidden_for_committer(app, as_user, captured_emails):
+    """Private questions stay committee-only (SPEC §9.2)."""
+    as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
+    client = app.test_client()
+    response = await client.post("/api/question", json=_create_body(is_private=True))
     assert response.status_code == 403
     body = await response.get_json()
     assert body["error"] == "not_committee_member"

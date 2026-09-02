@@ -19,6 +19,8 @@ from cap_backend.auth import (
     AuthenticatedUser,
     can_view_question,
     current_user,
+    is_committee_member,
+    is_project_member,
     user_has_scope,
 )
 from cap_backend.schemas.common import COMMENT_MAX_LENGTH
@@ -276,9 +278,19 @@ async def create_question(data: CreateQuestionRequest) -> Any:
     if not user_has_scope(user, ASK_SCOPE):
         return _insufficient_scope(ASK_SCOPE)
 
-    # Role-account tokens may file for any project (§6.4); everyone else must
-    # be on the project's committee (root may file for any project too).
-    if data.project_id not in user.committees and not user.is_root and not user.is_role_account:
+    # Any member of the project may ask, committer or committee member alike,
+    # and a project member may ask a question whose votes are binding: the
+    # binding flag governs who may *vote* bindingly, not who may ask (§9.2).
+    # Role-account tokens may file for any project (§6.4); so may root.
+    privileged = user.is_root or user.is_role_account
+    if not privileged and not is_project_member(user, data.project_id):
+        return jsonify({"error": "not_project_member"}), 403
+
+    # Private questions stay committee-only: they are announced on the private
+    # list and only committee members (plus root, tooling and the requester)
+    # can read them back afterwards (§7.5), so a plain committer filing one
+    # would post to a list they cannot follow.
+    if data.is_private and not privileged and not is_committee_member(user, data.project_id):
         return jsonify({"error": "not_committee_member"}), 403
 
     # request_id is server-assigned (SPEC §9.2): clients cannot supply it,
@@ -737,8 +749,10 @@ async def submit_response(question_id: int) -> Any:
             400,
         )
 
-    # is_binding is the snapshot the resolver will use (§7.2).
-    is_binding = question.is_binding and (question.project_id in user.committees)
+    # is_binding is the snapshot the resolver will use (§7.2). Binding votes
+    # are committee-only: a project committer voting on a binding question has
+    # their response recorded as non-binding.
+    is_binding = question.is_binding and is_committee_member(user, question.project_id)
 
     # A binding -1 on unanimous_approval needs a non-empty comment (§8.3.1).
     if (

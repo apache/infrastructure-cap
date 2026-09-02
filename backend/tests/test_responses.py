@@ -181,6 +181,21 @@ async def test_non_binding_minus_one_on_unanimous_records_no_veto(app, as_user, 
     assert body["is_veto"] is False
 
 
+async def test_project_committer_vote_is_not_binding(app, as_user, seed_questions):
+    """Committer access to the project does not make a vote binding (§7.2)."""
+    as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
+    [qid] = seed_questions(app, count=1, is_binding=1, is_private=0)
+    client = app.test_client()
+    response = await client.post(
+        f"/api/question/{qid}/responses",
+        json={"kind": "vote", "value": "+1"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["voter"] == "carol"
+    assert body["is_binding"] is False
+
+
 async def test_veto_withdrawal_appends_new_row(app, stub_session, seed_questions):
     [qid] = seed_questions(app, count=1, approval_type="unanimous_approval")
     client = app.test_client()

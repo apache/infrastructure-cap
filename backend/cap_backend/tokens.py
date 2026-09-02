@@ -8,8 +8,9 @@ a sixth evicts the oldest.
 
 Two kinds of tokens authenticate against this store:
 
-* **Personal access tokens (PATs)** minted by an OAuth user. Committee-
-  limited (they carry the issuer's committee list), ``roleaccount=False``.
+* **Personal access tokens (PATs)** minted by an OAuth user. Membership-
+  limited (they carry the issuer's committee and project lists),
+  ``roleaccount=False``.
 * **Role-account tokens** minted from a configured permanent role-account
   credential (section 6.4). Cross-committee (no committee list is needed,
   the create/resolve handlers waive the membership check for them) and
@@ -48,6 +49,10 @@ class IssuedToken:
     # create/resolve handlers waive the committee/requester ownership check
     # for these so a role account can act on behalf of any project.
     role_account: bool = False
+    # The issuer's project (committer) affiliations, carried alongside the
+    # committee list so a PAT can file a question for any project its owner
+    # belongs to, not just the ones whose committee they sit on (§9.2).
+    projects: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,7 @@ class TokenStore:
         is_root: bool,
         fullname: str | None,
         role_account: bool = False,
+        projects: tuple[str, ...] = (),
     ) -> IssuedToken:
         """Issue a new token for ``uid``. Evicts the oldest if 5 are already live."""
         now = datetime.now(UTC)
@@ -100,6 +106,7 @@ class TokenStore:
                 token=token_str,
                 uid=uid,
                 committees=tuple(committees),
+                projects=tuple(projects),
                 is_root=is_root,
                 fullname=fullname,
                 scopes=TOKEN_SCOPES,
@@ -133,7 +140,7 @@ def build_token_handler(
 
     Per the asfquart sessions doc, the handler receives the raw bearer token
     and returns either ``None`` (unknown/expired) or a session-dict carrying
-    the uid, committees, and ``metadata.scope`` list.
+    the uid, committees, projects, and ``metadata.scope`` list.
 
     ``role_accounts`` maps the SHA-256 hex digest of each permanent role-
     account token to its credential (section 6.4). A presented token is
@@ -155,6 +162,7 @@ def build_token_handler(
                 "uid": info.uid,
                 "roleaccount": info.role_account,
                 "pmcs": list(info.committees),
+                "projects": list(info.projects),
                 "isRoot": info.is_root,
                 "fullname": info.fullname,
                 "metadata": {"scope": list(info.scopes)},
@@ -168,6 +176,7 @@ def build_token_handler(
                     "uid": credential.uid,
                     "roleaccount": True,
                     "pmcs": [],
+                    "projects": [],
                     "isRoot": False,
                     "fullname": credential.fullname,
                     "metadata": {"scope": [ROLE_ISSUE_SCOPE]},

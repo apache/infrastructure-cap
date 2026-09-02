@@ -40,7 +40,13 @@ class AuthenticatedUser:
     """Slim projection of the asfquart session carried by request handlers."""
 
     uid: str
+    # Committee (PMC/PPMC) memberships. This is the *privileged* affiliation:
+    # it gates private questions and binding votes (SPEC §7.2, §9.2).
     committees: tuple[str, ...] = ()
+    # Project affiliations (committer access), from ``asfquart.session.projects``.
+    # A committer who is not on the committee is still a project member and may
+    # file questions, including questions that carry binding votes (SPEC §9.2).
+    projects: tuple[str, ...] = ()
     is_root: bool = False
     fullname: str | None = None
     # ``scopes`` is ``None`` for full OAuth sessions (which carry every
@@ -59,6 +65,9 @@ class AuthenticatedUser:
     @classmethod
     def from_session(cls, session: Any) -> AuthenticatedUser:
         committees = tuple(getattr(session, "committees", None) or [])
+        # asfquart exposes the raw ``projects`` LDAP group list (committer
+        # access) as ``ClientSession.projects``.
+        projects = tuple(getattr(session, "projects", None) or [])
         metadata = getattr(session, "metadata", None)
         scope_list: list[str] | None = None
         if isinstance(metadata, dict):
@@ -76,6 +85,7 @@ class AuthenticatedUser:
         return cls(
             uid=session.uid,
             committees=committees,
+            projects=projects,
             is_root=bool(getattr(session, "isRoot", False)),
             fullname=getattr(session, "fullname", None),
             scopes=scopes,
@@ -190,6 +200,31 @@ def user_has_scope(user: AuthenticatedUser, scope: str) -> bool:
     if scope == PUBLIC_SCOPE:
         return True
     return scope in user.scopes
+
+
+def is_committee_member(user: AuthenticatedUser, project_id: str) -> bool:
+    """Return True if ``user`` sits on ``project_id``'s committee (PMC/PPMC).
+
+    This is the privileged affiliation: it decides whether a vote is binding
+    (§7.2) and whether the caller may file a *private* question (§9.2).
+    """
+    if not user or not project_id:
+        return False
+    return project_id in user.committees
+
+
+def is_project_member(user: AuthenticatedUser, project_id: str) -> bool:
+    """Return True if ``user`` is affiliated with ``project_id`` at all.
+
+    That is: a committer on the project, or a member of its committee (a
+    committee member is always treated as a project member, whether or not
+    LDAP also lists them in the committer group). Project membership is what
+    gates asking a question, including one whose votes are binding (§9.2);
+    the binding-vote and private-question privileges remain committee-only.
+    """
+    if not user or not project_id:
+        return False
+    return project_id in user.projects or is_committee_member(user, project_id)
 
 
 def can_view_question(user: AuthenticatedUser, question: Question | Any) -> bool:

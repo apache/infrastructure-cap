@@ -42,13 +42,16 @@ async def app(settings: Settings) -> AsyncIterator:
 
 @pytest.fixture
 def fake_user() -> AuthenticatedUser:
-    return AuthenticatedUser(uid="alice", committees=("seapony",), is_root=False)
+    return AuthenticatedUser(
+        uid="alice", committees=("seapony",), projects=("seapony",), is_root=False
+    )
 
 
 class _StubSession:
     def __init__(self, user: AuthenticatedUser):
         self.uid = user.uid
         self.committees = list(user.committees)
+        self.projects = list(user.projects)
         self.isRoot = user.is_root
         self.fullname = user.fullname
 

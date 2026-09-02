@@ -71,7 +71,11 @@ def test_lookup_purges_expired_tokens():
 async def test_token_handler_returns_session_dict():
     store = TokenStore()
     info = store.issue(
-        uid="alice", committees=("seapony", "tooling"), is_root=False, fullname="Alice"
+        uid="alice",
+        committees=("seapony", "tooling"),
+        projects=("seapony", "tooling", "whimsy"),
+        is_root=False,
+        fullname="Alice",
     )
     handler = build_token_handler(store)
 
@@ -79,6 +83,9 @@ async def test_token_handler_returns_session_dict():
     assert session is not None
     assert session["uid"] == "alice"
     assert session["pmcs"] == ["seapony", "tooling"]
+    # The project (committer) list rides along so a PAT can file a question
+    # for any project its owner belongs to (§9.2).
+    assert session["projects"] == ["seapony", "tooling", "whimsy"]
     assert session["metadata"]["scope"] == list(TOKEN_SCOPES)
     assert session["roleaccount"] is False
 

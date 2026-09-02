@@ -31,8 +31,9 @@ async def issue_token() -> Any:
 
     Two callers may issue a token (SPEC §6.4, §9.12):
 
-    * A fully-authenticated **OAuth session** mints a committee-limited
-      personal access token (scoped to ``ask``).
+    * A fully-authenticated **OAuth session** mints a membership-limited
+      personal access token (scoped to ``ask``) carrying the issuer's
+      committee and project lists.
     * A permanent **role-account credential** (a bearer token whose digest
       is configured under ``roleaccounts``) mints a cross-committee
       role-account token, also scoped to ``ask``. The minted token may
@@ -63,11 +64,12 @@ async def issue_token() -> Any:
 
     store = current_app.extensions["cap_tokens"]
     if is_role_issuer:
-        # Cross-committee role-account token: no committee list is needed
-        # because create/resolve waive the membership check for it.
+        # Cross-committee role-account token: no committee or project list is
+        # needed because create/resolve waive the membership check for it.
         info = store.issue(
             uid=user.uid,
             committees=(),
+            projects=(),
             is_root=False,
             fullname=user.fullname,
             role_account=True,
@@ -76,6 +78,7 @@ async def issue_token() -> Any:
         info = store.issue(
             uid=user.uid,
             committees=user.committees,
+            projects=user.projects,
             is_root=user.is_root,
             fullname=user.fullname,
         )

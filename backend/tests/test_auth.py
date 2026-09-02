@@ -8,6 +8,8 @@ from cap_backend.auth import (
     AuthenticatedUser,
     _wants_json,
     can_view_question,
+    is_committee_member,
+    is_project_member,
     is_public_path,
 )
 
@@ -57,6 +59,32 @@ def test_can_view_private_question_requires_membership_or_root():
     assert can_view_question(root, _q(is_private=True)) is True
 
 
+def test_private_question_view_ignores_committer_only_membership():
+    """Committer access to a project does not grant private-question access."""
+    committer = AuthenticatedUser(uid="dave", committees=(), projects=("seapony",))
+    assert can_view_question(committer, _q(is_private=True)) is False
+
+
+def test_membership_helpers_separate_committee_from_project():
+    committer = AuthenticatedUser(uid="carol", committees=(), projects=("seapony",))
+    assert is_project_member(committer, "seapony") is True
+    assert is_committee_member(committer, "seapony") is False
+
+    # A committee member counts as a project member even when LDAP does not
+    # also list them in the committer group.
+    chair = AuthenticatedUser(uid="alice", committees=("seapony",), projects=())
+    assert is_project_member(chair, "seapony") is True
+    assert is_committee_member(chair, "seapony") is True
+
+    outsider = AuthenticatedUser(uid="bob", committees=("other",), projects=("other",))
+    assert is_project_member(outsider, "seapony") is False
+    assert is_committee_member(outsider, "seapony") is False
+
+    # An empty project id never matches anything.
+    assert is_project_member(committer, "") is False
+    assert is_committee_member(chair, "") is False
+
+
 def test_can_view_private_question_grants_tooling_committee():
     tooling = AuthenticatedUser(uid="alice", committees=("tooling",), is_root=False)
     assert can_view_question(tooling, _q(is_private=True)) is True
@@ -84,11 +112,13 @@ def test_authenticated_user_from_session():
     session = SimpleNamespace(
         uid="bob",
         committees=["foo", "bar"],
+        projects=["foo", "bar", "baz"],
         isRoot=False,
         fullname="Bob Bobson",
     )
     user = AuthenticatedUser.from_session(session)
     assert user.uid == "bob"
     assert user.committees == ("foo", "bar")
+    assert user.projects == ("foo", "bar", "baz")
     assert user.is_root is False
     assert user.fullname == "Bob Bobson"
