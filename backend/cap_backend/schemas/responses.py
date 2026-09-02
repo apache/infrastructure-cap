@@ -25,9 +25,7 @@ class VoteOption(BaseModel):
 
     @field_validator("allowed_values")
     @classmethod
-    def _at_least_two_distinct(
-        cls, values: list[str]
-    ) -> list[str]:
+    def _at_least_two_distinct(cls, values: list[str]) -> list[str]:
         # min_length=2 alone would accept ["+1", "+1"]; require two
         # *distinct* choices so the ballot is genuinely meaningful.
         if len(set(values)) < 2:
