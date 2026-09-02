@@ -523,7 +523,7 @@ async def test_publisher_consumes_audit_rows_written_by_question_route(
         "description": "...",
         "target_audience": "PMC: Apache SeaPony",
         "approval_type": "majority_approval",
-        "is_binding": True,
+        "binding_scope": "committee",
         "is_private": False,
         "response_option": {"kind": "vote"},
         "closes_at": "2026-12-31T00:00:00Z",

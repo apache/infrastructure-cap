@@ -345,16 +345,17 @@ Enforcement strategy:
 
    - `is_committee_member(user, project_id)` — `project_id` appears in
      `user.committees`, i.e. the caller sits on the project's PMC/PPMC.
-     This is the privileged affiliation: it determines binding
-     eligibility when a response is submitted (section 7.2), gates
-     filing a **private** question (section 9.2), and gates reading one
-     back (section 7.5).
+     This is the privileged affiliation: a committee member's vote is
+     always binding (section 7.2), and only a committee member may file
+     a **private** question (section 9.2) or read one back (section
+     7.5).
    - `is_project_member(user, project_id)` — `project_id` appears in
      `user.projects` (committer access) **or** in `user.committees`. A
      committee member always counts as a project member, whether or not
      LDAP also lists them in the committer group. Project membership is
      what gates `POST /api/question` (section 9.2): any member of a
-     project may ask a question, including one whose votes are binding.
+     project may ask a question. It is also what a question with
+     `binding_scope = "project"` extends binding votes to (section 7.2).
 
 Authorization beyond "logged in" is layered on per route:
 
@@ -560,7 +561,8 @@ CREATE TABLE IF NOT EXISTS questions (
                                                       -- on INSERT (clients MUST
                                                       -- NOT supply it).
     project_id           TEXT NOT NULL,               -- ASF project id, matched
-                                                      -- against session.committees
+                                                      -- against session.projects
+                                                      -- and session.committees
     title                TEXT NOT NULL,
     description          TEXT NOT NULL,
     requester            TEXT NOT NULL,               -- ASFUserID
@@ -573,9 +575,12 @@ CREATE TABLE IF NOT EXISTS questions (
             'lazy_consensus'
         )),
     response_option_json TEXT NOT NULL,               -- JSON: ResponseOption
-    is_binding           INTEGER NOT NULL
-        CHECK (is_binding IN (0, 1)),                 -- whether the question
-                                                      -- distinguishes binding votes
+    binding_scope        TEXT NOT NULL DEFAULT 'committee'
+        CHECK (binding_scope IN (
+            'committee',                              -- PMC/PPMC members only
+            'project'                                 -- + project committers
+        )),                                           -- who casts a binding
+                                                      -- vote; see section 7.2
     is_private           INTEGER NOT NULL DEFAULT 0
         CHECK (is_private IN (0, 1)),                 -- routes pubsub events
                                                       -- through the private topic
@@ -636,7 +641,7 @@ The row-to-Pydantic mapping is:
 | `target_audience`      | `target_audience`        |
 | `approval_type`        | `approval_type`          |
 | `response_option_json` | `response_option` (JSON) |
-| `is_binding`           | `is_binding`             |
+| `binding_scope`        | `binding_scope`          |
 | `is_private`           | `is_private`             |
 | `permalink`            | `permalink`              |
 | `status`               | `status`                 |
@@ -692,27 +697,32 @@ CREATE INDEX IF NOT EXISTS idx_responses_veto             ON responses(question_
 ```
 
 `is_binding` is captured at submission time (and not derived later)
-because a voter's committee membership at the moment of voting is
-what the tally must reference, even if their membership changes
-afterwards. The value is computed by the response handler as:
+because a voter's membership at the moment of voting is what the tally
+must reference, even if their membership changes afterwards. The value is computed by the response handler as:
 
 ```
-is_binding = question.is_binding AND (question.project_id in session.committees)
+is_binding = auth.casts_binding_vote(session, question.project_id,
+                                     question.binding_scope)
 ```
 
-If `question.is_binding` is false the vote is recorded as
-non-binding regardless of committee membership; if true, only voters
-whose `asfquart.session.committees` includes `question.project_id`
-get a binding vote, and everyone else's submission is recorded as
-non-binding. `session.committees` is consulted exactly once, at the
+which resolves as:
+
+| `question.binding_scope` | who is recorded binding                        |
+|--------------------------|------------------------------------------------|
+| `'committee'` (default)  | `project_id in session.committees`             |
+| `'project'`              | `is_project_member(session, project_id)`, i.e. committee members **and** committers on the project |
+
+A committee member's vote is therefore binding under either scope; the
+scope only decides whether the project's committers join them. A voter
+with no affiliation with the project is recorded non-binding under
+either scope. The membership lists are consulted exactly once, at the
 moment the response is written, and the result is frozen in this
 column.
 
-Note that `session.projects` (committer access) plays no part here:
-binding votes are committee-only. A project committer may *ask* a
-question whose votes are binding (section 9.2), but a vote they cast
-on one is recorded `is_binding = 0` like any other non-committee
-response.
+`binding_scope` is a property of the *question*, chosen at filing time
+(section 9.2), and it never turns binding votes off: every question has
+a binding electorate, which is why no approval type can end up with an
+empty tally purely because of this field.
 
 `is_veto` is also a denormalized snapshot. It is set to `1` only when
 all of the following hold at submission time:
@@ -1054,11 +1064,14 @@ class Question(BaseModel):
         "lazy_consensus",
     ]
 
-    # Whether the question distinguishes binding from non-binding votes.
-    # If True, only voters whose session.committees contains project_id
-    # may cast a binding vote (and, for unanimous_approval questions,
-    # raise a veto). Everyone else is recorded as non-binding.
-    is_binding: bool
+    # Who may cast a *binding* vote on this question (section 7.2).
+    # 'committee' (the default): only voters whose session.committees
+    # contains project_id. 'project': every project member, so the
+    # project's committers bind as well. Committee members bind under
+    # either value; everyone else is recorded as non-binding. Vetoes on
+    # unanimous_approval questions follow the same line, since only a
+    # binding -1 can veto.
+    binding_scope: Literal["committee", "project"] = "committee"
 
     # If True, pubsub events about this question are routed through
     # the `private/` topic prefix (see section 10). Does not affect
@@ -1087,7 +1100,7 @@ class Question(BaseModel):
 
     # Server-computed per response (NOT persisted). True if the user
     # receiving this Question would cast a binding vote on it, i.e.
-    # `question.is_binding AND project_id in session.committees`.
+    # `auth.casts_binding_vote(session, project_id, binding_scope)`.
     # Lets the UI render a "your vote will be binding" affordance
     # without re-doing the committee lookup client-side.
     viewer_is_binding: bool
@@ -1133,7 +1146,8 @@ The three `approval_type` values have distinct tally rules. The
 approval type; the question creator chooses the option but the
 server enforces the rules below at submission and resolution time.
 
-- **`unanimous_approval`** — A binding voter (per `is_binding`
+- **`unanimous_approval`** — A binding voter (per the response's
+  `is_binding`
   resolution above) may **veto** the question by submitting a vote
   of `-1` together with a non-empty `comment` field stating their
   technical reason. The server requires the comment to be non-empty
@@ -1198,9 +1212,13 @@ server enforces the rules below at submission and resolution time.
   approval; a comment explaining the objection is encouraged but
   not server-enforced for non-binding objections.
 
-Combining `is_binding=False` with `unanimous_approval` is legal but
-degenerate (no voter is binding, so no veto can ever be raised); the
-request creator is responsible for choosing a sensible combination.
+`binding_scope` (section 7.2) widens or narrows the electorate every
+one of these rules counts: under `'committee'` the tallies are over the
+project's committee, and under `'project'` its committers are counted
+alongside them, veto rights included. It cannot empty the electorate,
+so no approval type is unwinnable by virtue of this field alone. The
+request creator is still responsible for choosing a sensible
+combination of approval type and scope.
 
 ## 9. Endpoint Specifications
 
@@ -1231,8 +1249,8 @@ request creator is responsible for choosing a sensible combination.
   the caller is not entitled to see are silently omitted from the
   arrays rather than producing a hint that they exist.
 - **Per-row stamping**: for every surviving row the handler computes
-  `viewer_is_binding = question.is_binding AND project_id in
-  session.committees` and `time_remaining_seconds = max(0,
+  `viewer_is_binding = auth.casts_binding_vote(session, project_id,
+  question.binding_scope)` and `time_remaining_seconds = max(0,
   int((closes_at - now_utc()).total_seconds()))`, then serializes the
   row through the `Question` Pydantic model. The same stamping
   applies to both `pending` and `recent` so the frontend never has
@@ -1269,7 +1287,7 @@ Example response:
       "created_at": "2026-05-21T09:00:00Z",
       "closes_at": "2026-05-24T09:00:00Z",
       "approval_type": "majority_approval",
-      "is_binding": true,
+      "binding_scope": "committee",
       "is_private": false,
       "response_option": {
         "kind": "vote",
@@ -1295,7 +1313,7 @@ Example response:
       "created_at": "2026-05-18T09:00:00Z",
       "closes_at": "2026-05-20T09:00:00Z",
       "approval_type": "lazy_consensus",
-      "is_binding": true,
+      "binding_scope": "project",
       "is_private": false,
       "response_option": {"kind": "lazy_consensus", "allow_comment": true},
       "permalink": "/api/resolution/4216",
@@ -1339,19 +1357,22 @@ Create a new question. All persisted fields originate here.
     (section 7.5), so a caller who is only a committer would be posting
     to a list they cannot follow. The attempt is refused with
     `403 Forbidden` and `{"error": "not_committee_member"}`.
-  - Casting a **binding vote** on the question, which is not this
-    endpoint's business at all: it is decided per response, at
-    submission time, by section 7.2. `is_binding = true` is therefore
-    accepted from any project member — a committer may ask a question
-    that the committee answers with binding votes, and their own vote
-    on it is simply recorded as non-binding.
+  Note that `binding_scope` is *not* one of them. Either value is
+  accepted from any project member, because the field does not grant
+  the caller anything: it declares who the question's binding
+  electorate is, and section 7.2 decides each individual vote at
+  submission time. A committer filing with the default
+  `binding_scope = "committee"` is asking a question their own vote
+  will not bind on.
 
   `session.isRoot` and role-account sessions (section 6.4.1) bypass
   both checks and may file anything for any project.
 - **Request body**: `CreateQuestionRequest` (Pydantic), carrying
   every persisted column the caller controls: `project_id`, `title`,
-  `description`, `target_audience`, `approval_type`, `is_binding`,
-  `is_private`, `response_option`, `closes_at`. `request_id`,
+  `description`, `target_audience`, `approval_type`, `binding_scope`,
+  `is_private`, `response_option`, `closes_at`. `binding_scope` is
+  optional and defaults to `"committee"`; any value other than
+  `"committee"` or `"project"` is rejected with `422`. `request_id`,
   `question_id`, `requester`, `created_at`, `updated_at`, `status`,
   `outcome`, and `permalink` are server-assigned and **must not**
   appear in the request body (the model uses `extra="forbid"`).
@@ -1433,7 +1454,7 @@ Edit an open question's metadata.
   view containing only the editable fields: `title`,
   `description`, `target_audience`, `closes_at`, `is_private`,
   `response_option`. Identity fields (`question_id`, `request_id`,
-  `project_id`, `requester`, `approval_type`, `is_binding`,
+  `project_id`, `requester`, `approval_type`, `binding_scope`,
   `created_at`) are not editable; attempting to set them returns
   `400`.
 - **Response**: `200 OK`, body is the updated `Question`.
@@ -1562,8 +1583,10 @@ Submit a new response, or amend the caller's previous response.
   by the handler before insert):
   - `response_id` — freshly generated ULID/UUID, unique across all
     rows in the `responses` table
-  - `is_binding = question.is_binding AND
-    project_id in current_user.committees`
+  - `is_binding = auth.casts_binding_vote(current_user, project_id,
+    question.binding_scope)` (section 7.2): true for a committee
+    member, and for a project committer when
+    `binding_scope == 'project'`
   - `is_veto = (approval_type == 'unanimous_approval'
                 AND value == '-1' AND is_binding
                 AND comment != '')`
@@ -2167,18 +2190,22 @@ Coverage by area:
   Each test asserts the HTTP response, the audit-log row written,
   and the email captured by `captured_emails` (recipient, sender,
   subject prefix, threading). Authorization branches covered:
-  non-member `403 not_project_member`, a project committer filing a
-  binding question successfully (201, with `viewer_is_binding` false
-  for the asker), a project committer refused a private question
-  (`403 not_committee_member`), non-requester 403, root override,
-  early-resolve restriction.
+  non-member `403 not_project_member`, a project committer filing
+  successfully (201, `viewer_is_binding` false under the default
+  committee scope and true under `binding_scope = "project"`), an
+  omitted `binding_scope` defaulting to `"committee"`, an unknown
+  `binding_scope` rejected, a project committer refused a private
+  question (`403 not_committee_member`), non-requester 403, root
+  override, early-resolve restriction.
 - **Response submission** (`test_responses.py`): end-to-end tests
   for `POST /api/question/{id}/responses` covering the happy path for
   each `kind` (vote, lazy_consensus, free_text), the veto rules
   (binding -1 without comment rejected as `400`, with comment
   recorded as `is_veto=1`, non-binding -1 recorded but never veto),
-  a project committer's vote on a binding question recorded
-  `is_binding=0` (section 7.2),
+  a project committer's vote recorded `is_binding=0` under
+  `binding_scope='committee'` and `is_binding=1` under
+  `binding_scope='project'`, an outsider's vote non-binding under
+  either (section 7.2),
   veto withdrawal as an appended row, `response_option`
   compatibility (kind mismatch, value outside `allowed_values`,
   free-text overflow), `§7.4` acceptance ordering (deadline-passed
@@ -2233,11 +2260,13 @@ current implementation iteration; the list below is preserved as a
 ledger of where each decision lives so reviewers can audit the
 trail without re-reading the whole document.
 
-1. **Binding eligibility** is `questions.is_binding` plus a
-   committee-membership check (sections 7.2 and 8.3.1). *Asking* is
-   gated one step lower, on project membership, so a committer may
-   file a question the committee then answers with binding votes
-   (section 9.2); private questions stay committee-only.
+1. **Binding eligibility** is `questions.binding_scope` resolved
+   against the voter's memberships (sections 7.2 and 8.3.1): committee
+   members always bind, and the project's committers bind too when the
+   question was filed `binding_scope = 'project'`. *Asking* is gated
+   one step lower, on project membership alone, so a committer may file
+   a question the committee then answers (section 9.2); private
+   questions stay committee-only.
 2. **Audit log retention** is indefinite (section 7.3).
 3. **Admin endpoints** require `session.isRoot` via
    `@asfquart.auth.require(R.root)` (section 9.11).

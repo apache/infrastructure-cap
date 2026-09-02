@@ -42,7 +42,11 @@ class Question(BaseModel):
         "lazy_consensus",
     ]
 
-    is_binding: bool
+    # Who may cast a *binding* vote on this question (SPEC §7.2).
+    # ``committee``: PMC/PPMC members only, the default. ``project``: every
+    # project member, so committers bind as well. Committee members bind
+    # under either value.
+    binding_scope: Literal["committee", "project"] = "committee"
     is_private: bool = False
 
     response_option: ResponseOption
@@ -60,6 +64,11 @@ class Question(BaseModel):
         | None
     ) = None
 
+    # Server-computed per request (NOT persisted). True when the caller's own
+    # vote on this question would be binding, i.e. they are on the project's
+    # committee, or ``binding_scope == "project"`` and they are a project
+    # member. Lets the UI render a "your vote is binding" affordance without
+    # redoing the membership lookup client-side (SPEC §8.3).
     viewer_is_binding: bool
     # Server-computed per request (NOT persisted). True when the caller has
     # already submitted at least one response to this question. Responses
@@ -140,7 +149,8 @@ class CreateQuestionRequest(BaseModel):
         "simple_majority",
         "lazy_consensus",
     ]
-    is_binding: bool
+    # Defaults to committee-only binding votes when the client omits it.
+    binding_scope: Literal["committee", "project"] = "committee"
     is_private: bool = False
     response_option: ResponseOption
     closes_at: IsoTimestamp

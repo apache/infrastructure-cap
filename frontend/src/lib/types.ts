@@ -17,6 +17,12 @@ export type ApprovalType =
 
 export type QuestionStatus = "open" | "resolved" | "removed";
 
+// Who casts a binding vote on a question (backend SPEC §7.2). "committee":
+// PMC/PPMC members only, the default. "project": every project member, so
+// the project's committers bind alongside the committee. Committee members
+// bind under either value; only binding votes count toward the outcome.
+export type BindingScope = "committee" | "project";
+
 export type QuestionOutcome =
   | "approved"
   | "vetoed"
@@ -76,7 +82,7 @@ export interface Question {
   created_at: string;
   closes_at: string;
   approval_type: ApprovalType;
-  is_binding: boolean;
+  binding_scope: BindingScope;
   is_private: boolean;
   response_option: ResponseOption;
   permalink?: string | null;
@@ -130,7 +136,7 @@ export interface CreateQuestionRequest {
   description: string;
   target_audience: string;
   approval_type: ApprovalType;
-  is_binding: boolean;
+  binding_scope: BindingScope;
   is_private: boolean;
   response_option: ResponseOption;
   closes_at: string;

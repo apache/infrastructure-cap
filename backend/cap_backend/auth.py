@@ -227,6 +227,25 @@ def is_project_member(user: AuthenticatedUser, project_id: str) -> bool:
     return project_id in user.projects or is_committee_member(user, project_id)
 
 
+# The two values ``questions.binding_scope`` may take (SPEC §7.2). ``committee``
+# is the default: only PMC/PPMC members cast binding votes. ``project`` extends
+# binding votes to every project member, committers included.
+BINDING_SCOPE_COMMITTEE = "committee"
+BINDING_SCOPE_PROJECT = "project"
+
+
+def casts_binding_vote(user: AuthenticatedUser, project_id: str, binding_scope: str) -> bool:
+    """Return True if ``user``'s vote on a question binds, per its scope.
+
+    Committee members always bind. Under ``binding_scope == "project"`` every
+    project member (a committer on the project) binds too. Anyone with no
+    affiliation with the project never binds. See SPEC §7.2.
+    """
+    if binding_scope == BINDING_SCOPE_PROJECT:
+        return is_project_member(user, project_id)
+    return is_committee_member(user, project_id)
+
+
 def can_view_question(user: AuthenticatedUser, question: Question | Any) -> bool:
     """Implements the private-question ACL from SPEC section 7.5.
 

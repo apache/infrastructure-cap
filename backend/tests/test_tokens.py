@@ -262,7 +262,7 @@ async def test_ask_token_can_create_question(app, token_session):
         "description": "via token",
         "target_audience": "PMC: Apache SeaPony",
         "approval_type": "majority_approval",
-        "is_binding": True,
+        "binding_scope": "committee",
         "is_private": False,
         "response_option": {
             "kind": "vote",
@@ -307,7 +307,7 @@ async def test_answer_only_token_cannot_create_question(app, token_session):
         "description": "...",
         "target_audience": "PMC: Apache SeaPony",
         "approval_type": "majority_approval",
-        "is_binding": True,
+        "binding_scope": "committee",
         "is_private": False,
         "response_option": {
             "kind": "vote",
@@ -466,7 +466,7 @@ def _create_body(project_id="whimsy"):
         "description": "filed by a role account",
         "target_audience": f"PMC: Apache {project_id}",
         "approval_type": "majority_approval",
-        "is_binding": True,
+        "binding_scope": "committee",
         "is_private": False,
         "response_option": {
             "kind": "vote",

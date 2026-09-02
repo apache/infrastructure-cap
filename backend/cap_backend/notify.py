@@ -114,6 +114,13 @@ def _host_url() -> str:
         return ""
 
 
+def binding_scope_phrase(binding_scope: str) -> str:
+    """One-line description of who casts binding votes, for email bodies."""
+    if binding_scope == "project":
+        return "every project member (committers included) casts a binding vote"
+    return "only committee (PMC/PPMC) members cast binding votes"
+
+
 def _footer(question: Question | Any, *, host_url: str) -> str:
     """Return the standard CAP notification footer.
 
@@ -124,6 +131,18 @@ def _footer(question: Question | Any, *, host_url: str) -> str:
     from the per-event body.
     """
     project = getattr(question, "project_id", "")
+    binding_scope = getattr(question, "binding_scope", "committee")
+    if binding_scope == "project":
+        binding_line = (
+            "  * On this question every project member casts a binding "
+            "vote, committers included; votes from outside the project are "
+            "recorded but non-binding.\n"
+        )
+    else:
+        binding_line = (
+            "  * On this question only committee (PMC/PPMC) members cast "
+            "binding votes; all other votes are recorded but non-binding.\n"
+        )
     return (
         "-- \n"
         f"You are receiving this notification because the Apache {project} "
@@ -134,8 +153,7 @@ def _footer(question: Question | Any, *, host_url: str) -> str:
         "How to respond:\n"
         "  * Committers and committee members of the project may cast "
         "votes on this question through CAP using the link above.\n"
-        "  * Only committee (PMC/PPMC) members cast binding votes; all "
-        "other votes are recorded but non-binding.\n"
+        f"{binding_line}"
         "  * Anyone may view public CAP questions "
         "through the link above.\n"
         "\n"

@@ -18,6 +18,7 @@ from cap_backend.auth import (
     PUBLIC_SCOPE,
     AuthenticatedUser,
     can_view_question,
+    casts_binding_vote,
     current_user,
     is_committee_member,
     is_project_member,
@@ -127,7 +128,7 @@ async def list_pending() -> Any:
     open_rows = db.conn.execute(
         """
         SELECT question_id, request_id, project_id, title, description, requester,
-               target_audience, approval_type, response_option_json, is_binding,
+               target_audience, approval_type, response_option_json, binding_scope,
                is_private, permalink, status, outcome, closes_at, created_at, updated_at,
                EXISTS (
                    SELECT 1 FROM responses r
@@ -150,7 +151,7 @@ async def list_pending() -> Any:
     recent_rows = db.conn.execute(
         """
         SELECT question_id, request_id, project_id, title, description, requester,
-               target_audience, approval_type, response_option_json, is_binding,
+               target_audience, approval_type, response_option_json, binding_scope,
                is_private, permalink, status, outcome, closes_at, created_at, updated_at,
                EXISTS (
                    SELECT 1 FROM responses r
@@ -219,7 +220,7 @@ def _compute_publist(now: datetime) -> PublicListResponse:
     rows = db.conn.execute(
         """
         SELECT question_id, request_id, project_id, title, description, requester,
-               target_audience, approval_type, response_option_json, is_binding,
+               target_audience, approval_type, response_option_json, binding_scope,
                is_private, permalink, status, outcome, closes_at, created_at, updated_at
           FROM questions
          WHERE is_private = 0
@@ -312,7 +313,7 @@ async def create_question(data: CreateQuestionRequest) -> Any:
                 target_audience=data.target_audience,
                 approval_type=data.approval_type,
                 response_option=data.response_option.model_dump(),
-                is_binding=data.is_binding,
+                binding_scope=data.binding_scope,
                 is_private=data.is_private,
                 closes_at=data.closes_at,
             )
@@ -341,6 +342,7 @@ async def create_question(data: CreateQuestionRequest) -> Any:
             f"\n"
             f"Title:        {question.title}\n"
             f"Approval:     {question.approval_type}\n"
+            f"Binding:      {notify.binding_scope_phrase(question.binding_scope)}\n"
             f"Closes at:    {question.closes_at.isoformat()}\n"
             f"Description:\n"
             f"{question.description}\n"
@@ -749,10 +751,11 @@ async def submit_response(question_id: int) -> Any:
             400,
         )
 
-    # is_binding is the snapshot the resolver will use (§7.2). Binding votes
-    # are committee-only: a project committer voting on a binding question has
-    # their response recorded as non-binding.
-    is_binding = question.is_binding and is_committee_member(user, question.project_id)
+    # is_binding is the snapshot the resolver will use (§7.2): committee
+    # members always bind, and a project committer binds too when the question
+    # was filed with ``binding_scope = "project"``. Everyone else is recorded
+    # as non-binding.
+    is_binding = casts_binding_vote(user, question.project_id, question.binding_scope)
 
     # A binding -1 on unanimous_approval needs a non-empty comment (§8.3.1).
     if (

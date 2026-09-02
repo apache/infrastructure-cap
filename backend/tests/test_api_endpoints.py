@@ -352,9 +352,9 @@ async def test_publist_no_auth_required(app):
 
 
 async def test_publist_viewer_is_binding_is_false_for_anonymous(app, seed_questions):
-    """No session means no committees, so every row reports
-    viewer_is_binding=False even when the row's is_binding=1."""
-    seed_questions(app, count=1, status="open", is_binding=1)
+    """No session means no membership, so every row reports
+    viewer_is_binding=False even under binding_scope='project'."""
+    seed_questions(app, count=1, status="open", binding_scope="project")
     client = app.test_client()
     response = await client.get("/api/publist")
     body = await response.get_json()

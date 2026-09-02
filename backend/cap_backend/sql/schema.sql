@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS questions (
             'lazy_consensus'
         )),
     response_option_json TEXT NOT NULL,
-    is_binding           INTEGER NOT NULL
-        CHECK (is_binding IN (0, 1)),
+    binding_scope        TEXT NOT NULL DEFAULT 'committee'
+        CHECK (binding_scope IN ('committee', 'project')),
     is_private           INTEGER NOT NULL DEFAULT 0
         CHECK (is_private IN (0, 1)),
     permalink            TEXT,

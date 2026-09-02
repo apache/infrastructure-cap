@@ -83,10 +83,10 @@ def test_legacy_database_is_baselined_and_upgraded():
     )
 
     applied = run_migrations(conn)
-    # 0001 is stamped (not re-run); only 0002 actually executes.
-    assert applied == [2]
+    # 0001 is stamped (not re-run); every later migration executes.
+    assert applied == [2, 3]
     recorded = [int(r[0]) for r in conn.execute("SELECT version FROM schema_migrations")]
-    assert recorded == [1, 2]
+    assert recorded == [1, 2, 3]
 
     # The widened constraint now accepts token.issue, and the old row survived.
     conn.execute(
@@ -96,6 +96,68 @@ def test_legacy_database_is_baselined_and_upgraded():
         "SELECT question_id FROM audit_log WHERE action = 'question.create'"
     ).fetchone()
     assert surviving["question_id"] == 7
+
+
+def test_0003_maps_is_binding_to_binding_scope_and_keeps_responses():
+    """0003 rebuilds `questions`; question and response rows must survive.
+
+    The rebuild renames the parent table aside, which re-points the child
+    table's REFERENCES clause at it. If the child were not rebuilt first,
+    dropping the old parent would cascade every response away.
+    """
+    conn = _mem()
+    # Foreign keys are ON in production (db.py), which is what makes the
+    # cascade hazard real, so enforce them here too.
+    conn.execute("PRAGMA foreign_keys = ON")
+    # A legacy (0001-shaped) database with one question per old is_binding
+    # value, each carrying a response.
+    conn.executescript(discover_migrations()[0].sql)
+    for qid, is_binding in ((1, 1), (2, 0)):
+        conn.execute(
+            """
+            INSERT INTO questions (
+                question_id, request_id, project_id, title, description, requester,
+                target_audience, approval_type, response_option_json, is_binding,
+                is_private, closes_at, created_at, updated_at
+            ) VALUES (?, ?, 'seapony', 't', 'd', 'carol', 'PMC: Apache SeaPony',
+                      'majority_approval', '{"kind":"vote"}', ?, 0, 't', 't', 't')
+            """,
+            (qid, f"req_{qid}", is_binding),
+        )
+        conn.execute(
+            """
+            INSERT INTO responses (
+                response_id, question_id, voter, response_kind, response_json,
+                is_binding, is_veto, created_at, updated_at
+            ) VALUES (?, ?, 'dave', 'vote', '{"kind":"vote","value":"+1"}', 1, 0, 't', 't')
+            """,
+            (f"resp_{qid}", qid),
+        )
+    conn.commit()
+
+    assert run_migrations(conn) == [2, 3]
+
+    # Both old values land on the committee-only default.
+    rows = conn.execute(
+        "SELECT question_id, binding_scope FROM questions ORDER BY question_id"
+    ).fetchall()
+    assert [(r["question_id"], r["binding_scope"]) for r in rows] == [
+        (1, "committee"),
+        (2, "committee"),
+    ]
+    # The response history is intact and its per-vote snapshot untouched.
+    responses = conn.execute(
+        "SELECT response_id, question_id, is_binding FROM responses ORDER BY response_id"
+    ).fetchall()
+    assert [(r["response_id"], r["question_id"], r["is_binding"]) for r in responses] == [
+        ("resp_1", 1, 1),
+        ("resp_2", 2, 1),
+    ]
+    # The rebuilt child still points at the rebuilt parent, and the CHECK
+    # constraint on the new column is live.
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE questions SET binding_scope = 'everyone' WHERE question_id = 1")
 
 
 def test_partially_migrated_database_runs_only_missing():
@@ -110,7 +172,7 @@ def test_partially_migrated_database_runs_only_missing():
     )
 
     applied = run_migrations(conn)
-    assert applied == [2]
+    assert applied == [2, 3]
 
 
 def test_migration_failure_rolls_back(tmp_path, monkeypatch):

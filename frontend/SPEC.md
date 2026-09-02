@@ -571,8 +571,9 @@ A single component used by `NewQuestion.svelte` and
 | Target audience [ text input, max 200 chars ]      |
 | Approval type   [ <ApprovalTypeSelector> ]         |
 | Closes at       [ datetime-local input ]           |
-| Is binding      [ checkbox, disabled in edit mode ]|
-| Is private      [ checkbox, only visible if the    |
+| Binding scope   [ switch, disabled in edit mode ]  |
+|                   + explainer of who is tallied     |
+| Is private      [ switch, disabled unless the      |
 |                   selected project is in           |
 |                   session.committees ]             |
 | Response option [ <ResponseOptionEditor> ]         |
@@ -582,9 +583,28 @@ A single component used by `NewQuestion.svelte` and
 ```
 
 Fields that the backend forbids changing in edit mode
-(`project_id`, `approval_type`, `is_binding`, `request_id`) are
+(`project_id`, `approval_type`, `binding_scope`, `request_id`) are
 rendered read-only when `mode === "edit"`, with a small tooltip
 explaining why ("Cannot be changed once the question is filed").
+
+**Binding scope.** The switch is a boolean view of the question's
+`binding_scope` (backend SPEC §7.2): off, the default, sends
+`"committee"`; on sends `"project"`. It is labelled "Committers cast
+binding votes" and carries a live explainer underneath, because the
+choice decides which responses the resolver actually counts. Off, the
+text says only committee (PMC/PPMC) members cast binding votes and a
+committer's response is recorded without counting toward the outcome;
+on, it says every committer on the project binds alongside the
+committee and can veto a unanimous-approval question. Either way it
+closes with the two invariants that hold under both values: only
+binding votes are tallied at resolution, and votes from outside the
+project never bind.
+
+**Private.** The privacy switch is always rendered. When the caller is
+not on the selected project's committee it is rendered `disabled`
+rather than hidden, so its helper text ("Only members of `<project>`'s
+committee may mark a question private") explains a control the user can
+still see, instead of appearing to belong to whatever field follows.
 
 The `closes_at` field carries mode-aware help text, because a
 deadline reads as final and is not. In `create` mode it says the date
@@ -926,8 +946,8 @@ the backend spec) and the HTML element used to render it.
 | `description`     | `str`, max 2500                                        | `<textarea maxlength="2500" rows="8">`        |
 | `target_audience` | `str`, max 200                                         | `<input type="text" maxlength="200">` + explainer |
 | `approval_type`   | `Literal["unanimous_approval","majority_approval","simple_majority","lazy_consensus"]` | `<ApprovalTypeSelector>` (radio cards) |
-| `is_binding`      | `bool`                                                 | `<input type="checkbox">`                     |
-| `is_private`      | `bool` (only enabled if project in `session.committees`) | `<input type="checkbox">`                   |
+| `binding_scope`   | `Literal["committee","project"]` (defaults to `"committee"`) | `<input type="checkbox" role="switch">` + explainer |
+| `is_private`      | `bool` (switch disabled unless project in `session.committees`) | `<input type="checkbox" role="switch">`   |
 | `response_option` | discriminated union of `VoteOption / LazyConsensusOption / FreeTextOption` | `<ResponseOptionEditor>`        |
 | `closes_at`       | `datetime` (ISO 8601 UTC)                              | `<input type="datetime-local">` + UTC convert |
 

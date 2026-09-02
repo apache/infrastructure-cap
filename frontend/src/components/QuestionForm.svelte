@@ -87,7 +87,11 @@
   }
   let approvalType: ApprovalType =
     question?.approval_type ?? "majority_approval";
-  let isBinding: boolean = question?.is_binding ?? true;
+  // The switch is a boolean view of the question's `binding_scope`: off
+  // (the default) is committee-only binding votes, on extends them to every
+  // project member. Not editable after filing, like `approval_type`.
+  let projectBinding: boolean =
+    (question?.binding_scope ?? "committee") === "project";
   let isPrivate: boolean = question?.is_private ?? false;
   let responseOption: ResponseOption =
     question?.response_option ?? defaultResponseOption(approvalType);
@@ -134,7 +138,7 @@
           description: description.trim(),
           target_audience: targetAudience.trim(),
           approval_type: approvalType,
-          is_binding: isBinding,
+          binding_scope: projectBinding ? "project" : "committee",
           is_private: isPrivate,
           response_option: responseOption,
           closes_at: localInputToIso(closesLocal),
@@ -292,27 +296,45 @@
             id="q-binding"
             class="form-check-input"
             type="checkbox"
-            bind:checked={isBinding}
+            bind:checked={projectBinding}
             disabled={editReadonly}
+            aria-describedby="q-binding-help"
           />
           <label for="q-binding" class="form-check-label"
-            >Distinguish binding votes</label
+            >Committers cast binding votes</label
           >
         </div>
-        {#if canMarkPrivate}
-          <div class="form-check form-switch">
-            <input
-              id="q-private"
-              class="form-check-input"
-              type="checkbox"
-              bind:checked={isPrivate}
-            />
-            <label for="q-private" class="form-check-label">
-              <i class="fa-solid fa-lock me-1"></i>Private (committee only)
-            </label>
-          </div>
-        {:else}
-          <div class="form-text">
+        <div class="form-text" id="q-binding-help">
+          {#if projectBinding}
+            Every committer on the project casts a binding vote alongside the
+            committee, so their votes count toward the outcome (and can veto a
+            unanimous-approval question).
+          {:else}
+            Only committee (PMC/PPMC) members cast binding votes. Committers
+            may still respond, but their votes are recorded without counting
+            toward the outcome.
+          {/if}
+          Only binding votes are tallied when the question resolves; votes from
+          outside the project never bind.
+          {#if editReadonly}
+            Cannot be changed once the question is filed.
+          {/if}
+        </div>
+        <div class="form-check form-switch">
+          <input
+            id="q-private"
+            class="form-check-input"
+            type="checkbox"
+            bind:checked={isPrivate}
+            disabled={!canMarkPrivate}
+            aria-describedby={canMarkPrivate ? undefined : "q-private-help"}
+          />
+          <label for="q-private" class="form-check-label">
+            <i class="fa-solid fa-lock me-1"></i>Private (committee only)
+          </label>
+        </div>
+        {#if !canMarkPrivate}
+          <div class="form-text" id="q-private-help">
             Only members of <code>{projectId || "(no project)"}</code>'s committee
             may mark a question private.
           </div>

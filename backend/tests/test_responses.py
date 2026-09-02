@@ -64,8 +64,8 @@ async def test_submit_vote_response_happy_path(app, stub_session, seed_questions
     assert body["question_id"] == qid
     assert body["response_kind"] == "vote"
     assert body["response"]["value"] == "+1"
-    # alice is on the seapony committee per the fake_user fixture, and the
-    # seeded question has is_binding=True, so the snapshot must be binding.
+    # alice is on the seapony committee per the fake_user fixture, so her
+    # vote binds under the seeded question's binding_scope='committee'.
     assert body["is_binding"] is True
     assert body["is_veto"] is False
     assert response.headers["Location"].startswith(f"/api/question/{qid}/responses/")
@@ -181,10 +181,10 @@ async def test_non_binding_minus_one_on_unanimous_records_no_veto(app, as_user, 
     assert body["is_veto"] is False
 
 
-async def test_project_committer_vote_is_not_binding(app, as_user, seed_questions):
-    """Committer access to the project does not make a vote binding (§7.2)."""
+async def test_committer_vote_not_binding_under_committee_scope(app, as_user, seed_questions):
+    """Committer access alone does not bind on a committee-scoped question."""
     as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
-    [qid] = seed_questions(app, count=1, is_binding=1, is_private=0)
+    [qid] = seed_questions(app, count=1, binding_scope="committee", is_private=0)
     client = app.test_client()
     response = await client.post(
         f"/api/question/{qid}/responses",
@@ -193,6 +193,35 @@ async def test_project_committer_vote_is_not_binding(app, as_user, seed_question
     assert response.status_code == 201
     body = await response.get_json()
     assert body["voter"] == "carol"
+    assert body["is_binding"] is False
+
+
+async def test_committer_vote_binding_under_project_scope(app, as_user, seed_questions):
+    """binding_scope='project' extends binding votes to committers (§7.2)."""
+    as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
+    [qid] = seed_questions(app, count=1, binding_scope="project", is_private=0)
+    client = app.test_client()
+    response = await client.post(
+        f"/api/question/{qid}/responses",
+        json={"kind": "vote", "value": "+1"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["voter"] == "carol"
+    assert body["is_binding"] is True
+
+
+async def test_outsider_vote_not_binding_under_project_scope(app, as_user, seed_questions):
+    """'project' scope still stops at the project boundary (§7.2)."""
+    as_user(AuthenticatedUser(uid="outsider", committees=("other",), projects=("other",)))
+    [qid] = seed_questions(app, count=1, binding_scope="project", is_private=0)
+    client = app.test_client()
+    response = await client.post(
+        f"/api/question/{qid}/responses",
+        json={"kind": "vote", "value": "+1"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
     assert body["is_binding"] is False
 
 

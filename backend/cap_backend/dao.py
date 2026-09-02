@@ -13,7 +13,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from cap_backend.auth import AuthenticatedUser
+from cap_backend.auth import AuthenticatedUser, casts_binding_vote
 from cap_backend.schemas.questions import Question, StoredResponse
 
 
@@ -55,9 +55,9 @@ def row_to_question(
         now = datetime.now(UTC)
 
     response_option: Any = json.loads(row["response_option_json"])
-    viewer_is_binding = (
-        viewer and bool(row["is_binding"]) and (row["project_id"] in viewer.committees)
-    ) or False
+    viewer_is_binding = bool(
+        viewer and casts_binding_vote(viewer, row["project_id"], row["binding_scope"])
+    )
     remaining = int((closes_at - now).total_seconds())
 
     return Question.model_validate(
@@ -70,7 +70,7 @@ def row_to_question(
             "requester": row["requester"],
             "target_audience": row["target_audience"],
             "approval_type": row["approval_type"],
-            "is_binding": bool(row["is_binding"]),
+            "binding_scope": row["binding_scope"],
             "is_private": bool(row["is_private"]),
             "response_option": response_option,
             "permalink": row["permalink"],
@@ -118,7 +118,7 @@ def fetch_question_row(conn: sqlite3.Connection, question_id: int) -> sqlite3.Ro
     return conn.execute(
         """
         SELECT question_id, request_id, project_id, title, description, requester,
-               target_audience, approval_type, response_option_json, is_binding,
+               target_audience, approval_type, response_option_json, binding_scope,
                is_private, permalink, status, outcome, closes_at, created_at, updated_at
           FROM questions
          WHERE question_id = ?
@@ -138,7 +138,7 @@ def insert_question(
     target_audience: str,
     approval_type: str,
     response_option: dict[str, Any],
-    is_binding: bool,
+    binding_scope: str,
     is_private: bool,
     closes_at: datetime,
 ) -> int:
@@ -148,7 +148,7 @@ def insert_question(
         INSERT INTO questions (
             request_id, project_id, title, description, requester,
             target_audience, approval_type, response_option_json,
-            is_binding, is_private, permalink, status, outcome,
+            binding_scope, is_private, permalink, status, outcome,
             closes_at, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'open', NULL, ?, ?, ?)
         """,
@@ -161,7 +161,7 @@ def insert_question(
             target_audience,
             approval_type,
             json.dumps(response_option, separators=(",", ":"), sort_keys=True),
-            1 if is_binding else 0,
+            binding_scope,
             1 if is_private else 0,
             closes_at.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             now,

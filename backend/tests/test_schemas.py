@@ -31,7 +31,7 @@ def _question_payload(**overrides):
         "created_at": "2026-05-21T09:00:00Z",
         "closes_at": "2026-05-24T09:00:00Z",
         "approval_type": "majority_approval",
-        "is_binding": True,
+        "binding_scope": "committee",
         "is_private": False,
         "response_option": {
             "kind": "vote",

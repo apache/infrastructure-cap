@@ -28,7 +28,7 @@ def _create_body(**overrides):
         "description": "Description body",
         "target_audience": "PMC: Apache SeaPony",
         "approval_type": "majority_approval",
-        "is_binding": True,
+        "binding_scope": "committee",
         "is_private": False,
         "response_option": {"kind": "vote"},
         "closes_at": "2026-12-31T00:00:00Z",
@@ -96,20 +96,52 @@ async def test_create_question_forbidden_for_non_member(app, as_user, captured_e
     assert captured_emails == []
 
 
-async def test_create_binding_question_allowed_for_committer(app, as_user, captured_emails):
-    """A committer who is not on the committee may still ask, even a binding
-    question: the binding flag governs voting, not asking (SPEC §9.2)."""
+async def test_create_question_allowed_for_committer(app, as_user, captured_emails):
+    """A committer who is not on the committee may still ask (SPEC §9.2).
+
+    Under the default committee scope their own vote does not bind.
+    """
     as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
     client = app.test_client()
-    response = await client.post("/api/question", json=_create_body(is_binding=True))
+    response = await client.post("/api/question", json=_create_body())
     assert response.status_code == 201
     body = await response.get_json()
     assert body["requester"] == "carol"
-    assert body["is_binding"] is True
-    # The asker is not on the committee, so their own vote would not bind.
+    assert body["binding_scope"] == "committee"
     assert body["viewer_is_binding"] is False
 
     assert captured_emails[0]["recipient"] == "dev@seapony.apache.org"
+    assert "only committee (PMC/PPMC) members" in captured_emails[0]["message"]
+
+
+async def test_create_question_project_binding_scope(app, as_user, captured_emails):
+    """binding_scope='project' lets every project member bind (SPEC §7.2)."""
+    as_user(AuthenticatedUser(uid="carol", committees=(), projects=("seapony",)))
+    client = app.test_client()
+    response = await client.post("/api/question", json=_create_body(binding_scope="project"))
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["binding_scope"] == "project"
+    # carol is a project member, so under this scope her own vote binds.
+    assert body["viewer_is_binding"] is True
+
+    assert "every project member" in captured_emails[0]["message"]
+
+
+async def test_create_question_defaults_to_committee_binding_scope(app, stub_session):
+    """An omitted binding_scope defaults to committee-only (SPEC §9.2)."""
+    body = _create_body()
+    del body["binding_scope"]
+    client = app.test_client()
+    response = await client.post("/api/question", json=body)
+    assert response.status_code == 201
+    assert (await response.get_json())["binding_scope"] == "committee"
+
+
+async def test_create_question_rejects_unknown_binding_scope(app, stub_session):
+    client = app.test_client()
+    response = await client.post("/api/question", json=_create_body(binding_scope="everyone"))
+    assert response.status_code in (400, 422)
 
 
 async def test_create_private_question_forbidden_for_committer(app, as_user, captured_emails):
