@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 
 from cap_backend.app import build_app
@@ -23,6 +24,14 @@ def main(argv: list[str] | None = None) -> int:
 
     runx = getattr(app, "runx", None)
     if runx is not None:
+        # asfquart's runx() always watches loaded files via watchfiles and
+        # restarts on change. pipservice handles reloads for us, so swap in
+        # a watcher that never fires (signal handling is unaffected).
+        async def _no_watch(*_args: object, **_kwargs: object) -> None:
+            await asyncio.Event().wait()
+
+        app.watch = _no_watch
+
         runx(host=settings.server.host, port=settings.server.port)
     else:
         app.run(host=settings.server.host, port=settings.server.port)
