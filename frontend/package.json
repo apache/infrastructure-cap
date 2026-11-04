@@ -15,7 +15,7 @@
     "@tsconfig/svelte": "^5.0.4",
     "sass": "^1.79.0",
     "svelte": "^5.55.10",
-    "svelte-check": "^3.8.6",
+    "svelte-check": "^4.7.8",
     "tslib": "^2.7.0",
     "typescript": "^5.5.4",
     "vite": "^8.3.5"
