@@ -93,8 +93,15 @@ def _notify(
     actor: AuthenticatedUser,
     body: str,
 ) -> None:
-    """Best-effort send; failures are logged inside notify.send()."""
+    """Best-effort send; failures are logged inside notify.send().
+
+    A question filed with ``environment = "production"`` (role accounts only,
+    §9.2) bypasses ``notifications.debug_recipient`` for every event in its
+    lifetime, so it always reaches the project's own list (§11.1).
+    """
     debug_recipient = _settings().notifications.debug_recipient
+    if question.environment == "production":
+        debug_recipient = None
     notify.send(  # type: ignore[arg-type]
         event=event,
         question=question,
@@ -129,7 +136,7 @@ async def list_pending() -> Any:
         """
         SELECT question_id, request_id, project_id, title, description, requester,
                target_audience, approval_type, response_option_json, binding_scope,
-               is_private, permalink, status, outcome, closes_at, created_at, updated_at,
+               is_private, environment, permalink, status, outcome, closes_at, created_at, updated_at,
                EXISTS (
                    SELECT 1 FROM responses r
                     WHERE r.question_id = questions.question_id AND r.voter = ?
@@ -152,7 +159,7 @@ async def list_pending() -> Any:
         """
         SELECT question_id, request_id, project_id, title, description, requester,
                target_audience, approval_type, response_option_json, binding_scope,
-               is_private, permalink, status, outcome, closes_at, created_at, updated_at,
+               is_private, environment, permalink, status, outcome, closes_at, created_at, updated_at,
                EXISTS (
                    SELECT 1 FROM responses r
                     WHERE r.question_id = questions.question_id AND r.voter = ?
@@ -221,7 +228,7 @@ def _compute_publist(now: datetime) -> PublicListResponse:
         """
         SELECT question_id, request_id, project_id, title, description, requester,
                target_audience, approval_type, response_option_json, binding_scope,
-               is_private, permalink, status, outcome, closes_at, created_at, updated_at
+               is_private, environment, permalink, status, outcome, closes_at, created_at, updated_at
           FROM questions
          WHERE is_private = 0
            AND (status = 'open' OR updated_at >= ?)
@@ -294,6 +301,20 @@ async def create_question(data: CreateQuestionRequest) -> Any:
     if data.is_private and not privileged and not is_committee_member(user, data.project_id):
         return jsonify({"error": "not_committee_member"}), 403
 
+    # Only role-account tokens may route a question's notifications past the
+    # debug redirect (§9.2, §11.1). An explicit "default" is the same as
+    # omitting the field, so it is accepted from anyone.
+    if data.environment != "default" and not user.is_role_account:
+        return (
+            jsonify(
+                {
+                    "error": "environment_forbidden",
+                    "detail": "Only role-account tokens may set environment.",
+                }
+            ),
+            403,
+        )
+
     # request_id is server-assigned (SPEC §9.2): clients cannot supply it,
     # and the UNIQUE constraint on questions.request_id guarantees no row
     # ever shares an id with another.
@@ -316,13 +337,18 @@ async def create_question(data: CreateQuestionRequest) -> Any:
                 binding_scope=data.binding_scope,
                 is_private=data.is_private,
                 closes_at=data.closes_at,
+                environment=data.environment,
             )
             audit.record(
                 db.conn,
                 action="question.create",
                 actor=user.uid,
                 question_id=question_id,
-                details={"request_id": request_id, "project_id": data.project_id},
+                details={
+                    "request_id": request_id,
+                    "project_id": data.project_id,
+                    "environment": data.environment,
+                },
             )
             db.conn.execute("COMMIT")
         except Exception:

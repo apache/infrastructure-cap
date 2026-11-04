@@ -72,6 +72,7 @@ def row_to_question(
             "approval_type": row["approval_type"],
             "binding_scope": row["binding_scope"],
             "is_private": bool(row["is_private"]),
+            "environment": row["environment"],
             "response_option": response_option,
             "permalink": row["permalink"],
             "status": row["status"],
@@ -119,7 +120,7 @@ def fetch_question_row(conn: sqlite3.Connection, question_id: int) -> sqlite3.Ro
         """
         SELECT question_id, request_id, project_id, title, description, requester,
                target_audience, approval_type, response_option_json, binding_scope,
-               is_private, permalink, status, outcome, closes_at, created_at, updated_at
+               is_private, environment, permalink, status, outcome, closes_at, created_at, updated_at
           FROM questions
          WHERE question_id = ?
         """,
@@ -141,6 +142,7 @@ def insert_question(
     binding_scope: str,
     is_private: bool,
     closes_at: datetime,
+    environment: str = "default",
 ) -> int:
     now = _now_iso()
     cursor = conn.execute(
@@ -148,9 +150,9 @@ def insert_question(
         INSERT INTO questions (
             request_id, project_id, title, description, requester,
             target_audience, approval_type, response_option_json,
-            binding_scope, is_private, permalink, status, outcome,
+            binding_scope, is_private, environment, permalink, status, outcome,
             closes_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'open', NULL, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'open', NULL, ?, ?, ?)
         """,
         (
             request_id,
@@ -163,6 +165,7 @@ def insert_question(
             json.dumps(response_option, separators=(",", ":"), sort_keys=True),
             binding_scope,
             1 if is_private else 0,
+            environment,
             closes_at.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             now,
             now,

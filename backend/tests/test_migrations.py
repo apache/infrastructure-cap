@@ -84,9 +84,9 @@ def test_legacy_database_is_baselined_and_upgraded():
 
     applied = run_migrations(conn)
     # 0001 is stamped (not re-run); every later migration executes.
-    assert applied == [2, 3]
+    assert applied == [2, 3, 4]
     recorded = [int(r[0]) for r in conn.execute("SELECT version FROM schema_migrations")]
-    assert recorded == [1, 2, 3]
+    assert recorded == [1, 2, 3, 4]
 
     # The widened constraint now accepts token.issue, and the old row survived.
     conn.execute(
@@ -135,7 +135,7 @@ def test_0003_maps_is_binding_to_binding_scope_and_keeps_responses():
         )
     conn.commit()
 
-    assert run_migrations(conn) == [2, 3]
+    assert run_migrations(conn) == [2, 3, 4]
 
     # Both old values land on the committee-only default.
     rows = conn.execute(
@@ -160,6 +160,65 @@ def test_0003_maps_is_binding_to_binding_scope_and_keeps_responses():
         conn.execute("UPDATE questions SET binding_scope = 'everyone' WHERE question_id = 1")
 
 
+def test_0004_adds_environment_default_and_keeps_rows():
+    """0004 rebuilds `questions`; existing rows land on 'default' and keep data.
+
+    Starts from a database migrated up to 0003 (stamped in schema_migrations)
+    so only 0004 runs, mirroring an installation upgraded in place.
+    """
+    import cap_backend.migrations as mig
+
+    conn = _mem()
+    conn.execute("PRAGMA foreign_keys = ON")
+    upto3 = [m for m in discover_migrations() if m.version <= 3]
+    for m in upto3:
+        conn.executescript(m.sql)
+    conn.execute(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)"
+    )
+    for m in upto3:
+        conn.execute(
+            "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, 't')",
+            (m.version, m.name),
+        )
+    conn.execute(
+        """
+        INSERT INTO questions (
+            question_id, request_id, project_id, title, description, requester,
+            target_audience, approval_type, response_option_json, binding_scope,
+            is_private, closes_at, created_at, updated_at
+        ) VALUES (5, 'req_5', 'seapony', 't', 'd', 'carol', 'PMC: Apache SeaPony',
+                  'majority_approval', '{"kind":"vote"}', 'project', 1, 't', 't', 't')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO responses (
+            response_id, question_id, voter, response_kind, response_json,
+            is_binding, is_veto, created_at, updated_at
+        ) VALUES ('resp_5', 5, 'dave', 'vote', '{"kind":"vote","value":"+1"}', 1, 0, 't', 't')
+        """
+    )
+    conn.commit()
+
+    assert mig.run_migrations(conn) == [4]
+
+    row = conn.execute(
+        "SELECT binding_scope, is_private, environment FROM questions WHERE question_id = 5"
+    ).fetchone()
+    assert (row["binding_scope"], row["is_private"], row["environment"]) == (
+        "project",
+        1,
+        "default",
+    )
+    resp = conn.execute("SELECT question_id FROM responses WHERE response_id = 'resp_5'").fetchone()
+    assert resp["question_id"] == 5
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE questions SET environment = 'staging' WHERE question_id = 5")
+    conn.execute("UPDATE questions SET environment = 'production' WHERE question_id = 5")
+
+
 def test_partially_migrated_database_runs_only_missing():
     conn = _mem()
     # Pretend only 0001 ran (fresh-then-stamped state).
@@ -172,7 +231,7 @@ def test_partially_migrated_database_runs_only_missing():
     )
 
     applied = run_migrations(conn)
-    assert applied == [2, 3]
+    assert applied == [2, 3, 4]
 
 
 def test_migration_failure_rolls_back(tmp_path, monkeypatch):

@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from cap_backend.auth import AuthenticatedUser
 
 # ---------------------------------------------------------------------------
@@ -165,6 +167,37 @@ async def test_create_question_root_can_file_for_any_project(app, as_user, captu
         json=_create_body(project_id="anyproject"),
     )
     assert response.status_code == 201
+
+
+@pytest.mark.parametrize(
+    "user",
+    [
+        AuthenticatedUser(uid="alice", committees=("seapony",), projects=("seapony",)),
+        AuthenticatedUser(uid="root", committees=(), is_root=True),
+    ],
+    ids=["committee_member", "root"],
+)
+async def test_create_question_production_environment_role_accounts_only(
+    app, as_user, captured_emails, user
+):
+    """Only role-account tokens may set environment=production (SPEC §9.2)."""
+    as_user(user)
+    client = app.test_client()
+    response = await client.post("/api/question", json=_create_body(environment="production"))
+    assert response.status_code == 403
+    body = await response.get_json()
+    assert body["error"] == "environment_forbidden"
+    assert _audit_rows(app) == []
+    assert captured_emails == []
+
+
+async def test_create_question_explicit_default_environment_allowed(app, stub_session):
+    """``environment: "default"`` is the same as omitting it, so anyone may send it."""
+    client = app.test_client()
+    response = await client.post("/api/question", json=_create_body(environment="default"))
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["environment"] == "default"
 
 
 async def test_create_question_rejects_extra_fields(app, stub_session):

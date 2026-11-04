@@ -48,6 +48,11 @@ class Question(BaseModel):
     # under either value.
     binding_scope: Literal["committee", "project"] = "committee"
     is_private: bool = False
+    # Notification routing (SPEC §11.1). ``default`` honours any configured
+    # ``notifications.debug_recipient``; ``production`` bypasses it so every
+    # email about this question goes to the project's own list. Only a
+    # role-account token can file a ``production`` question (SPEC §9.2).
+    environment: Literal["default", "production"] = "default"
 
     response_option: ResponseOption
 
@@ -152,6 +157,10 @@ class CreateQuestionRequest(BaseModel):
     # Defaults to committee-only binding votes when the client omits it.
     binding_scope: Literal["committee", "project"] = "committee"
     is_private: bool = False
+    # Role accounts only (SPEC §9.2): ``production`` makes this question's
+    # notifications bypass ``notifications.debug_recipient``. Omitted or
+    # ``default`` keeps the configured debug redirect in force.
+    environment: Literal["default", "production"] = "default"
     response_option: ResponseOption
     closes_at: IsoTimestamp
 

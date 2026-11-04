@@ -622,3 +622,94 @@ async def test_end_to_end_role_account_wiring(settings, monkeypatch):
         minted = await application.token_handler(info.token)
         assert minted["roleaccount"] is True
         assert minted["metadata"]["scope"] == ["ask"]
+
+
+# ---------------------------------------------------------------------------
+# environment: role-account-only override of the debug mail redirect (§9.2, §11.1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def debug_mail(app):
+    """Configure a debug recipient on the running app's settings."""
+    app.extensions["cap_settings"].notifications.debug_recipient = "debug@example.org"
+    return "debug@example.org"
+
+
+async def test_role_token_production_bypasses_debug_recipient(
+    app, role_session, debug_mail, captured_emails
+):
+    role_session(scope=("ask",), committees=())
+    client = app.test_client()
+    response = await client.post(
+        "/api/question", json={**_create_body("whimsy"), "environment": "production"}
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["environment"] == "production"
+    assert [m["recipient"] for m in captured_emails] == ["dev@whimsy.apache.org"]
+
+    # Persisted and audited.
+    db = app.extensions["cap_db"]
+    row = db.conn.execute(
+        "SELECT environment FROM questions WHERE question_id = ?", (body["question_id"],)
+    ).fetchone()
+    assert row["environment"] == "production"
+    audit_row = db.conn.execute(
+        "SELECT details_json FROM audit_log WHERE action = 'question.create'"
+    ).fetchone()
+    assert json.loads(audit_row["details_json"])["environment"] == "production"
+
+
+async def test_production_question_later_events_bypass_debug_recipient(
+    app, role_session, seed_questions, debug_mail, captured_emails
+):
+    """Subsequent events (here: resolve) follow the question's stored environment."""
+    past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    [qid] = seed_questions(
+        app,
+        count=1,
+        requester="tooling",
+        project_id="whimsy",
+        closes_at=past,
+        environment="production",
+    )
+    role_session(scope=("ask",), committees=())
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    assert response.status_code == 200
+    assert [m["recipient"] for m in captured_emails] == ["dev@whimsy.apache.org"]
+
+
+@pytest.mark.parametrize("body_extra", [{}, {"environment": "default"}])
+async def test_role_token_default_environment_honours_debug_recipient(
+    app, role_session, debug_mail, captured_emails, body_extra
+):
+    role_session(scope=("ask",), committees=())
+    client = app.test_client()
+    response = await client.post("/api/question", json={**_create_body("whimsy"), **body_extra})
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["environment"] == "default"
+    assert [m["recipient"] for m in captured_emails] == [debug_mail]
+
+
+async def test_default_question_later_events_honour_debug_recipient(
+    app, role_session, seed_questions, debug_mail, captured_emails
+):
+    past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    [qid] = seed_questions(app, count=1, requester="tooling", project_id="whimsy", closes_at=past)
+    role_session(scope=("ask",), committees=())
+    client = app.test_client()
+    response = await client.post(f"/api/question/{qid}/resolve")
+    assert response.status_code == 200
+    assert [m["recipient"] for m in captured_emails] == [debug_mail]
+
+
+async def test_unknown_environment_rejected(app, role_session):
+    role_session(scope=("ask",), committees=())
+    client = app.test_client()
+    response = await client.post(
+        "/api/question", json={**_create_body("whimsy"), "environment": "staging"}
+    )
+    assert response.status_code in (400, 422)

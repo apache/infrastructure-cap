@@ -133,6 +133,7 @@ def seed_questions():
                 ),
                 "binding_scope": "committee",
                 "is_private": 0,
+                "environment": "default",
                 "permalink": None,
                 "status": "open",
                 "outcome": None,
@@ -146,12 +147,12 @@ def seed_questions():
                 INSERT INTO questions (
                     request_id, project_id, title, description, requester,
                     target_audience, approval_type, response_option_json,
-                    binding_scope, is_private, permalink, status, outcome,
+                    binding_scope, is_private, environment, permalink, status, outcome,
                     closes_at, created_at, updated_at
                 ) VALUES (
                     :request_id, :project_id, :title, :description, :requester,
                     :target_audience, :approval_type, :response_option_json,
-                    :binding_scope, :is_private, :permalink, :status, :outcome,
+                    :binding_scope, :is_private, :environment, :permalink, :status, :outcome,
                     :closes_at, :created_at, :updated_at
                 )
                 """,

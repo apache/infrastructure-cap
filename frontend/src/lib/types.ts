@@ -84,6 +84,9 @@ export interface Question {
   approval_type: ApprovalType;
   binding_scope: BindingScope;
   is_private: boolean;
+  // Notification routing (backend SPEC §11.1); only role accounts can file
+  // "production" questions, which bypass the server's debug mail redirect.
+  environment?: 'default' | 'production';
   response_option: ResponseOption;
   permalink?: string | null;
   status: QuestionStatus;

@@ -281,6 +281,14 @@ pubsub:
 logging:
   level: "INFO"
 
+notifications:
+  # When set to a non-empty address, every notification email is
+  # redirected there instead of the project's mailing list (section
+  # 11.1). Leave empty (or omit) in production. Questions filed by a
+  # role account with `environment = "production"` (section 9.2)
+  # bypass this redirect.
+  debug_recipient: ""
+
 # Optional. Trusted role accounts that may mint temporary, cross-committee
 # "ask" tokens (section 6.4.1). Keyed by the UID the issued token carries.
 # Only the SHA-256 hex digest of the permanent bearer token is stored.
@@ -490,6 +498,11 @@ capability is minting a **temporary** token at `GET /api/token`:
   ones included: both the project-membership and the private-question
   committee check in `POST /api/question` are waived for a role-account
   session (`AuthenticatedUser.is_role_account`).
+- The temporary token is the **only** kind of session that may set
+  `environment = "production"` when creating a question (section 9.2),
+  which makes every notification about that question bypass
+  `notifications.debug_recipient` and go to the project's own list
+  (section 11.1).
 - The temporary token may **resolve only questions its own uid created**.
   Resolution is gated by the normal requester check, which is *not* waived;
   since a role account is the `requester` of anything it files, it can
@@ -584,6 +597,12 @@ CREATE TABLE IF NOT EXISTS questions (
     is_private           INTEGER NOT NULL DEFAULT 0
         CHECK (is_private IN (0, 1)),                 -- routes pubsub events
                                                       -- through the private topic
+    environment          TEXT NOT NULL DEFAULT 'default'
+        CHECK (environment IN (
+            'default',                                -- honour debug_recipient
+            'production'                              -- bypass debug_recipient
+        )),                                           -- notification routing;
+                                                      -- see sections 9.2, 11.1
     permalink            TEXT,                        -- NULL until resolved
     status               TEXT NOT NULL DEFAULT 'open'
         CHECK (status IN ('open', 'resolved', 'removed')),
@@ -643,6 +662,7 @@ The row-to-Pydantic mapping is:
 | `response_option_json` | `response_option` (JSON) |
 | `binding_scope`        | `binding_scope`          |
 | `is_private`           | `is_private`             |
+| `environment`          | `environment`            |
 | `permalink`            | `permalink`              |
 | `status`               | `status`                 |
 | `outcome`              | `outcome`                |
@@ -656,6 +676,14 @@ model) used by the resolver and the audit log. The
 server-computed per response and are deliberately not stored on this
 table; `viewer_has_responded` is derived from the `responses` table
 (section 7.2) for the calling user.
+
+`environment` is fixed at filing time and never edited afterwards (it is
+not a `PATCH` field, section 9.4), so every notification in a question's
+lifetime (created, edited, response, resolved, closed) is routed the same
+way. It was added by migration `0004_questions_environment.sql`, which
+rebuilds `questions` (and `responses`, for the foreign-key reason given in
+`0003`) and sets every pre-existing row to `'default'`, matching how those
+questions' notifications were already routed.
 
 ### 7.2 Table: `responses`
 
@@ -746,6 +774,7 @@ diff for an edit, the response body for a submission, etc).
 The actions tracked are exactly the ones called out in this spec:
 
 - `question.create`: a new question (and its parent request) is recorded.
+  `details_json` carries `request_id`, `project_id` and `environment`.
 - `question.edit`: a question's metadata is changed before it resolves.
 - `question.respond`: a voter submits or amends a response.
 - `question.resolve`: the voting window closes and a permalink is issued.
@@ -1079,6 +1108,13 @@ class Question(BaseModel):
     # event stream.
     is_private: bool = False
 
+    # Notification routing (section 11.1). 'default': honour any
+    # configured notifications.debug_recipient. 'production': bypass it,
+    # so every email about this question goes to the project's own list.
+    # Only a role-account token may file a 'production' question
+    # (section 9.2); the value is fixed at creation.
+    environment: Literal["default", "production"] = "default"
+
     # What the voter is allowed to submit. Pulled from the discriminated
     # union above so the OpenAPI schema lists every concrete option.
     response_option: ResponseOption
@@ -1367,12 +1403,22 @@ Create a new question. All persisted fields originate here.
 
   `session.isRoot` and role-account sessions (section 6.4.1) bypass
   both checks and may file anything for any project.
+
+  `environment = "production"` is **role-account-only**: any other
+  session (root included) that sends it is refused with
+  `403 Forbidden` and `{"error": "environment_forbidden"}`. Sending
+  `environment = "default"` explicitly is identical to omitting the
+  field and is accepted from anyone.
 - **Request body**: `CreateQuestionRequest` (Pydantic), carrying
   every persisted column the caller controls: `project_id`, `title`,
   `description`, `target_audience`, `approval_type`, `binding_scope`,
-  `is_private`, `response_option`, `closes_at`. `binding_scope` is
-  optional and defaults to `"committee"`; any value other than
-  `"committee"` or `"project"` is rejected with `422`. `request_id`,
+  `is_private`, `environment`, `response_option`, `closes_at`.
+  `binding_scope` is optional and defaults to `"committee"`; any value
+  other than `"committee"` or `"project"` is rejected with `422`.
+  `environment` is optional and defaults to `"default"`; any value
+  other than `"default"` or `"production"` is rejected with `422`. It
+  selects how the question's notifications are routed for its whole
+  lifetime (section 11.1). `request_id`,
   `question_id`, `requester`, `created_at`, `updated_at`, `status`,
   `outcome`, and `permalink` are server-assigned and **must not**
   appear in the request body (the model uses `extra="forbid"`).
@@ -1397,7 +1443,8 @@ Create a new question. All persisted fields originate here.
   (`not_project_member`: no affiliation with the project;
   `not_committee_member`: `is_private = true` from a caller who is only
   a committer — root and role accounts may file anything for any
-  project). A
+  project; `environment_forbidden`: `environment = "production"` from
+  a session that is not a role account). A
   `409` from a `request_id` collision is not expected in practice
   because the server allocates the value, but the `UNIQUE` constraint
   on `questions.request_id` still guards against bugs in the
@@ -2044,6 +2091,25 @@ The selection lives in `cap_backend/notify.recipient_for(question)`
 so handlers never have to know mailing-list naming conventions.
 There is exactly one mailing-list recipient per event; no Cc / Bcc.
 
+**Debug redirect.** When `notifications.debug_recipient` (section 5.1)
+is a non-empty address, every notification is sent there instead of
+the list above, so a test deployment never mails real project lists.
+The redirect is applied per question according to its persisted
+`environment` (section 7.1):
+
+| `environment`  | `debug_recipient` set | Recipient                        |
+|----------------|-----------------------|----------------------------------|
+| `"default"`    | no                    | project list (table above)       |
+| `"default"`    | yes                   | `debug_recipient`                |
+| `"production"` | either                | project list (table above)       |
+
+Because `environment` is stored on the question and cannot be edited,
+the choice made at creation applies to every subsequent event about
+that question (edits, responses, resolution, withdrawal). Only role
+accounts can file `"production"` questions (section 9.2). The route
+helper `_notify` in `routes/questions.py` drops the debug recipient for
+`"production"` questions before calling `notify.send`.
+
 ### 11.2 Sender
 
 The `From:` header is constant across every event so subscribers
@@ -2196,7 +2262,13 @@ Coverage by area:
   omitted `binding_scope` defaulting to `"committee"`, an unknown
   `binding_scope` rejected, a project committer refused a private
   question (`403 not_committee_member`), non-requester 403, root
-  override, early-resolve restriction.
+  override, early-resolve restriction, `environment = "production"`
+  refused for committee members and root (`403
+  environment_forbidden`) while an explicit `"default"` is accepted.
+  Role-account `environment` routing (production bypasses
+  `debug_recipient` on create and on later events; default or omitted
+  honours it) is covered in `test_tokens.py`; migration `0004` in
+  `test_migrations.py`.
 - **Response submission** (`test_responses.py`): end-to-end tests
   for `POST /api/question/{id}/responses` covering the happy path for
   each `kind` (vote, lazy_consensus, free_text), the veto rules

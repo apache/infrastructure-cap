@@ -109,8 +109,12 @@ absolute expiry 24 hours later. Constraints:
 - **Email.** After the transaction commits, the route dispatches a
   notification through `asfpy.messaging.mail`. Public questions
   route to `dev@{project}.apache.org`; private questions route to
-  `private@{project}.apache.org`. Delivery failures are logged but
-  never roll back a committed state change.
+  `private@{project}.apache.org`. If `notifications.debug_recipient`
+  is set in `config.yaml`, every email goes there instead, except for
+  questions a role account filed with `"environment": "production"`
+  (the only kind of caller allowed to set it), which always reach the
+  project list for their whole lifetime. Delivery failures are logged
+  but never roll back a committed state change.
 - **Pubsub.** A background coroutine (`cap_backend/pubsub.py`)
   tails `audit_log` by `audit_id` and POSTs one JSON event per
   row to `{pubsub.base_url}[/private]/question/{type}/{project}/{id}`.
@@ -163,6 +167,11 @@ operationally:
   topics. Without credentials, private events are skipped (with a
   `WARNING` log line) while public events continue to be
   delivered.
+- `notifications.debug_recipient` — when non-empty, every
+  notification email is redirected to this address instead of the
+  project list (for test deployments). Role accounts can opt a
+  question out of the redirect by creating it with
+  `"environment": "production"` (SPEC §9.2, §11.1).
 - `CAP_PUBSUB_PASSWORD` — environment override for
   `pubsub.basic_auth.password`, so the password never has to live
   in the YAML file.

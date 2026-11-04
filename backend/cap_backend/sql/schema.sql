@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS questions (
         CHECK (binding_scope IN ('committee', 'project')),
     is_private           INTEGER NOT NULL DEFAULT 0
         CHECK (is_private IN (0, 1)),
+    environment          TEXT NOT NULL DEFAULT 'default'
+        CHECK (environment IN ('default', 'production')),
     permalink            TEXT,
     status               TEXT NOT NULL DEFAULT 'open'
         CHECK (status IN ('open', 'resolved', 'removed')),
